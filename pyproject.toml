@@ -1,0 +1,73 @@
+[semantic_release]
+major_on_zero = true
+allow_zero_version = true
+tag_format = "monorepo-config/v{version}"
+
+[semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[semantic_release.commit_parser_options]
+allowed_tags = [
+    "build",
+    "chore", 
+    "ci",
+    "docs",
+    "feat",
+    "fix",
+    "perf",
+    "style",
+    "refactor",
+    "test",
+    "release",
+    "revert",
+    "meta",
+    "module",
+    "BREAKING CHANGE"
+]
+
+minor_tags = [
+    "feat",
+    "perf",
+    "build",
+    "ci",
+    "release",
+    "revert",
+    "meta",
+    "module"
+]
+
+patch_tags = [
+    "fix",
+    "chore",
+    "docs",
+    "style",
+    "refactor",
+    "test"
+]
+
+major_tags = [
+    "BREAKING CHANGE",
+    "feat!",
+    "fix!",
+    "perf!",
+    "build!",
+    "ci!",
+    "chore!",
+    "docs!",
+    "style!",
+    "refactor!",
+    "test!",
+    "release!",
+    "revert!",
+    "meta!",
+    "module!"
+]
+
+parse_squash_commits = true
+
+[semantic_release.changelog]
+exclude_commit_patterns = ["^chore\\(release\\):"]
+
+[semantic_release.changelog.default_templates]
+changelog_file = "CHANGELOG.md"

@@ -1,0 +1,401 @@
+# Contributing to Terraform Modules
+
+> **All contributions should be made using the Agentic Workspace devcontainer and its `workspace` CLI.**
+>
+> Local development outside the devcontainer is not supported. See the [Agentic Workspace documentation](https://github.com/matthew-dresden/agentic-workspace) for setup and usage instructions.
+
+This comprehensive guide explains the complete Software Development Life Cycle (SDLC) and contribution process for both Terraform and non-Terraform code in this repository. It covers workflow logic, security, and the CI/CD pipeline for all contributor types.
+
+---
+
+## Quick Start by Contributor Type
+
+### Internal Contributors (Org Members)
+```bash
+# 1. Clone and setup
+git clone https://github.com/matthew-dresden/terraform-modules.git
+cd terraform-modules
+make install-tools && make configure
+
+# 2. Create module
+git checkout -b feature/my-module
+cp -r skeletons/generic-skeleton providers/aws/primitives/my-module
+# ... implement your module ...
+
+# 3. Validate and test
+make module-validate MODULE_PATH=providers/aws/primitives/my-module MODULE_TYPE=primitive
+cd providers/aws/primitives/my-module && make test
+
+# 4. Submit PR
+git add . && git commit -m "feat: add my-module primitive"
+git push origin feature/my-module
+# Create PR via GitHub UI
+```
+
+### External Contributors
+```bash
+# 1. Fork and clone
+# Fork via GitHub UI first
+git clone https://github.com/YOUR-USERNAME/terraform-modules.git
+cd terraform-modules
+make install-tools && make configure
+
+# 2. Create module
+git checkout -b feature/my-module
+cp -r skeletons/generic-skeleton providers/aws/primitives/my-module
+# ... implement your module ...
+
+# 3. Validate and test locally
+make module-validate MODULE_PATH=providers/aws/primitives/my-module MODULE_TYPE=primitive
+cd providers/aws/primitives/my-module && make test
+
+# 4. Submit PR to upstream
+git add . && git commit -m "feat: add my-module primitive"
+git push origin feature/my-module
+# Create PR from fork to upstream via GitHub UI
+```
+
+---
+
+## Complete SDLC Flow
+
+### 1. Development Phase
+- Follow [module structure requirements](terraform-module-structure.md)
+- Implement comprehensive tests using [Terraform Terratest Framework](https://github.com/matthew-dresden/terraform-terratest-framework)
+- Use conventional commit messages for your local commits (optional - only PR title matters for versioning)
+- **Format your PR title** with conventional commit prefix (`feat:`, `fix:`, `docs:`, etc.) - this determines the version bump
+- Validate locally before submitting
+
+### 2. Pull Request Submission
+- **Format PR title** with conventional commit prefix (`feat:`, `fix:`, etc.) - this determines the version bump
+- **Never manually merge PRs** - the pipeline handles all merges automatically
+- **PR Detection**: System detects Terraform module vs non-Terraform changes
+- **Security Scanning**: CodeQL analysis starts immediately (parallel to validation)
+- **Validation**: Comprehensive policy and quality checks
+
+### 3. Testing Phase
+- **Internal Contributors**: Tests execute automatically after validation
+- **External Contributors**: Tests require approval via `external-contributor-test-approval` environment
+
+### 4. Main Validation Workflow
+- PR validation triggers main-validation workflow
+- Routes to appropriate merge approval job based on contributor type
+
+### 5. Merge Approval Gate
+- Requires approval via GitHub Environment:
+  - Internal (non-self-approve): `merge-approval` environment
+  - Internal (self-approve): `merge-approval` environment (manual approval still required)
+  - External: `external-contributor-merge-approval` environment
+- Slack notifications sent to code owners
+
+### 6. Merge Process
+- **System automatically merges PR after approval** (squash merge using PR title as commit message)
+- **Never manually merge PRs through GitHub UI** - the pipeline handles all merges
+- Feature branch deleted automatically
+
+### 7. Post-Merge Validation
+- All validation checks re-run on merged code
+- Additional security scanning on main branch
+
+### 8. QA Certification Gate
+- Requires approval via `qa-certification` environment
+- Slack notification sent after post-merge validation passes
+
+### 9. Release Approval Gate
+- Requires approval via `qa-certification` environment
+- Triggers release workflow upon approval
+
+### 10. Automated Release
+- **Terraform Modules**: Individual semantic versioning per module (based on PR title)
+- **Non-Terraform**: Repository-wide semantic versioning (based on PR title)
+- Automatic changelog generation and GitHub release creation
+
+---
+
+## Key Differences by Contributor Type
+
+| Aspect | Internal Contributors | External Contributors |
+|--------|----------------------|----------------------|
+| Repository Access | Direct clone | Fork required |
+| Test Execution | Automatic | Manual approval required |
+| Security Review | Streamlined | Enhanced scrutiny |
+| Environment | Standard CI | Protected environment |
+| Approval Speed | Faster | Additional security gates |
+
+---
+
+## CI/CD Workflows Overview
+
+This repository uses a multi-stage, automated CI/CD pipeline to ensure code quality, security, and compliance for all contributions. The workflows support both production and dry run (safe testing) modes.
+
+### Main Workflows
+- **PR Validation (`pr-validation.yml`)**: Entry point for all pull requests. Runs the offline gate: the full Go + Rego suite (`make test-all-non-tf-module-code`), and, for a changed Terraform module, `module-validate`, `tf-format`, `tf-docs-check`, `tf-lint` and `terraform init -backend=false && terraform validate`. No AWS credentials are used; `terraform plan`, `tf-plan` and `tf-test` are deliberately not run in CI.
+- **Main Validation (`main-validation.yml`)**: _Currently disabled._ Core workflow for PR approval, merge decisions, and release orchestration. Its trigger and jobs are commented out because they require the `GH_APP_ID` / `GH_APP_PRIVATE_KEY` GitHub App secrets, `SLACK_WEBHOOK_URL`, and live AWS credentials.
+- **Release (`release.yml`)**: _Currently disabled._ Handles both Terraform and non-Terraform releases. Its trigger and job are commented out because they require the `GH_APP_ID` / `GH_APP_PRIVATE_KEY` GitHub App secrets and `SLACK_WEBHOOK_URL`.
+- **CodeQL Analysis (`codeql-analysis.yml`)**: Runs automated security scanning on all pushes and PRs.
+- **Weekly Module Health Check (`weekly-module-health-check.yml`)**: _Currently disabled._ Runs `make test-all-terraform-modules` against every module; its trigger is commented out because it provisions live AWS infrastructure.
+
+### Security Features
+- **Workflow File Protection**: External contributors cannot modify workflow files. Internal contributors must follow the SDLC process for workflow changes.
+- **Automated Security Scanning**: CodeQL analysis runs on all PRs and pushes.
+- **Manual Approval Gates**: Maintainers must approve PRs and test execution for external contributors.
+- **Environment Isolation**: Tests for external contributors run in protected environments.
+- **Action Allowlist**: Only SHA-pinned, pre-approved GitHub Actions are permitted.
+
+### Pull Request Flow
+1. **Security Check**: Validates contributor type and workflow file changes.
+2. **Change Detection**: Determines if the PR changes a Terraform module or only non-module files.
+3. **Validation**: Runs comprehensive policy, linting, formatting, documentation, and security checks.
+4. **Testing**: Executes full test suite (automatic for internal, manual approval for external contributors).
+5. **Main Validation**: Triggers main-validation workflow with merge approval routing.
+6. **Merge Approval**: Requires environment approval (varies by contributor type).
+7. **Auto-Merge**: Pipeline merges PR using squash merge with PR title as commit message.
+8. **Post-Merge Validation**: Re-runs all tests on merged code.
+9. **QA Certification**: Requires environment approval before release.
+10. **Release Approval**: Requires environment approval to trigger release.
+11. **Release**: Automated versioning (based on PR title) and changelog.
+
+See [WORKFLOW_LOGIC.md](WORKFLOW_LOGIC.md) and [main-validation-sdlc.md](main-validation-sdlc.md) for full details.
+
+---
+
+## Terraform and Module Strategy
+
+This monorepo manages all stateful resources (cloud, SaaS, Kubernetes, etc.) using a strict Terraform module strategy:
+
+- **Module Types:**
+  - **Primitive Modules:** Manage a single resource type. Must be agnostic, use official providers, and follow the latest skeleton and repo policies.
+  - **Utility Modules:** Add opinionated functionality (e.g., naming/tagging). No resource blocks. Must be agnostic and live in this monorepo.
+  - **Reference Modules:** Collections of primitives/utilities providing a reference architecture or service. Must be agnostic and tested for integration.
+  - **Client Wrapper Modules:** Client-specific wrappers that import reference modules and add custom logic. Must live in the client’s repo and follow the same structure/testing standards.
+
+- **General Requirements:**
+  - All modules must use the latest skeleton, pass all OPA policies, and be fully tested (rego and Terratest).
+  - All modules must be semantically versioned and released via CI/CD.
+  - Use Apache 2.0 license unless client-specific.
+
+- **Provider Strategy:**
+  - Always use the latest stable official provider.
+  - If a required feature/bugfix is missing, fork the provider, follow best practices for forking, and upstream changes when possible. See below for the provider forking workflow.
+
+- **Terragrunt Usage:**
+  - Terragrunt may be used in downstream consumer repos for orchestration, but all Terraform logic must reside in this monorepo.
+
+- **Self-Contained and Single Purpose:**
+  - Every module must be self-contained and focused on a single responsibility, supporting the [Self-Contained Repository Deployment Principle](principles/self-contained-repository-deployment-principle.md) and [Single Purpose Repository Principle](principles/single-purpose-repository-principle.md).
+
+## Provider Forking Workflow
+
+If you must fork a provider:
+1. Fork the latest provider and add your feature/bugfix.
+2. Ensure full testing and no regressions.
+3. Use the fork in your module and deliver to production.
+4. Create a tech debt story to upstream your change.
+5. Refactor to use the official provider once merged.
+6. If frequent changes are needed, manage your fork with a full pipeline and regular merges from upstream.
+
+---
+
+## Module Types and Structure
+
+This repository contains different types of Terraform modules:
+- **Primitive Modules**: Manages a single major resource type from a provider (e.g., S3, ECS, EC2). Resource blocks are permitted. Must be agnostic, use official providers, and follow the latest skeleton and repo policies. Primitive modules are the most complex and where most raw development occurs. They require the highest level of expertise and scrutiny, as mistakes here can introduce security or compliance risks.
+- **Utility Modules**: Adds opinionated functionality (e.g., naming/tagging) or provides data-only structures (such as resource naming constraints for every AWS resource). No resource blocks. Must be agnostic and live in this monorepo.
+- **Collection Modules**: A composition of primitive modules and/or other collection modules. Collection modules can only import other modules (OPA enforced) and cannot contain resource blocks. They provide an opinionated, specialized set of resources to support a use case (e.g., EKS cluster integrated with SumoLogic or Datadog). They do not provide a full reference architecture but are designed to be integrated with reference modules for more complex use cases.
+- **Reference Modules**: Provides a fully baked, production-ready service that is secure, observable, follows best practices, and modern architecture patterns. Reference modules are less complex than primitives, and are intended as the main entry point for most consumers. They offer a high degree of confidence, as they are fully tested for security, policy, governance, linting, formatting, and functional testing. Most users will consume reference or collection modules, not primitives.
+- **Client Wrapper Modules**: Client-specific wrapper that imports reference modules and adds custom logic. Must live in the client’s repo and follow the same structure/testing standards.
+
+All modules must follow the [required structure](terraform-module-structure.md) and [policies](terraform-module-policies.md).
+
+---
+
+## Development Guidelines
+- No hard-coded values in Terraform code
+- Variables must be declared in variables.tf
+- Outputs must be declared in outputs.tf
+- Provider configurations must be in versions.tf
+- Local variables must be in locals.tf
+- Write tests for all examples using the [Terraform Terratest Framework](https://github.com/matthew-dresden/terraform-terratest-framework)
+- Ensure tests validate the module's core functionality
+- Include common tests for validation, formatting, and outputs
+- Create example-specific tests for unique features
+- Follow the [test structure requirements](terraform-module-testing.md)
+- Configure test behavior using the `test.config` file in the module root
+- Control idempotency testing with `TERRATEST_IDEMPOTENCY=true|false` in the config file
+- All Go test files must pass linting (`make go-lint`)
+- All Go test files must be properly formatted (`make go-format`)
+
+---
+
+## Security Measures
+
+### For All Contributors
+- **Pre-merge CodeQL scanning**: Security vulnerability detection
+- **Policy validation**: Automated governance enforcement
+- **Code owner approval**: Human review required
+- **Post-merge validation**: Additional quality checks
+
+### Additional for External Contributors
+- **Manual test approval**: Prevents malicious code execution
+- **Environment isolation**: Protected CI environment
+- **Enhanced review**: Additional security scrutiny
+
+### GitHub Actions Security
+- **SHA-Pinned Actions**: All third-party GitHub Actions are pinned to specific commit SHAs
+- **Automated Management**: `make github-actions-security` manages action security
+- **Allowlist Protection**: GitHub repository configured with action allowlist
+- **Supply Chain Protection**: Prevents malicious updates to third-party actions
+
+### External Contributor Protection
+- **Workflow Modification Block**: External contributors cannot modify `.github/workflows/` files
+- **Manual Test Approval**: Tests for external contributors require manual approval
+- **Environment Isolation**: External tests run in protected environments
+- **Token Limitations**: Limited GitHub token permissions for external contributions
+
+### Code Security
+- **CodeQL Analysis**: Automated security scanning runs on all PRs
+- **Pre-Merge Scanning**: Security analysis completes before merge approval
+- **Vulnerability Detection**: Blocks merge if security vulnerabilities are found
+
+---
+
+## Monitoring and Maintenance
+
+### Continuous Monitoring
+- **Weekly health checks**: All modules tested automatically
+- **Security scanning**: Ongoing vulnerability detection
+- **Quality metrics**: Test coverage and code quality tracking
+
+### Release Management
+- **Semantic versioning**: Automatic version determination
+- **Changelog generation**: Automated from commit messages
+- **Release notifications**: Team alerts for all releases
+- **Audit trail**: Complete history of all changes
+
+---
+
+## Getting Help
+
+### Documentation
+- [Module Structure](terraform-module-structure.md)
+- [Module Policies](terraform-module-policies.md)
+- [Testing Requirements](terraform-module-testing.md)
+- [PR Title-Based Versioning](pr-title-versioning.md)
+- [Complete Workflow Logic](WORKFLOW_LOGIC.md)
+- [Main Validation SDLC Guide](main-validation-sdlc.md)
+
+### Support Channels
+- **Issues**: Create GitHub issues for bugs or questions
+- **Discussions**: Use GitHub Discussions for general questions
+- **Direct Contact**: Reach out to repository maintainers
+
+### Common Issues
+- **Test failures**: Check local validation first
+- **Policy violations**: Review module structure requirements
+- **Approval delays**: Ensure code owners are correctly identified
+- **External contributor delays**: Security review may take additional time
+
+---
+
+## Additional Notes
+
+- **Workflow Maintenance:** For changes to workflow files (e.g., `.github/workflows/main-validation.yml`), follow the [Main Validation SDLC Guide](main-validation-sdlc.md) and always use dry run mode for safe testing.
+- **CI/CD Details:** See [Workflow Logic](WORKFLOW_LOGIC.md) for a detailed explanation of all automated workflows and their routing logic.
+- **Module and Non-Module Contributions:** Both Terraform and non-Terraform code follow the same high-level SDLC, with differences in validation and release as described above.
+
+## How to Contribute
+
+### For External Contributors
+
+External contributors must use the fork and pull request workflow:
+
+1. **Fork the Repository**:
+   - Fork the repository to your GitHub account
+   - Clone your fork locally: `git clone https://github.com/YOUR-USERNAME/terraform-modules.git`
+
+2. **Create a Branch**:
+   - Create a branch for your changes: `git checkout -b feature/your-feature-name`
+
+3. **Make Your Changes**:
+   - Follow the [module structure requirements](docs/terraform-module-structure.md)
+   - Ensure your module adheres to all [module policies](docs/terraform-module-policies.md)
+   - Write tests for your module following the required test structure
+   - **Install module dependencies:**
+     - From your module directory: `make install`
+   - **Format and lint Go code in your module:**
+     - `make go-format` and `make go-lint`
+   - **Generate and check Terraform documentation:**
+     - `make tf-docs` (generate docs)
+     - `make tf-docs-check` (verify docs are up to date)
+   - **Clean up module files:**
+     - `make clean` (removes Terraform and state files)
+     - `make clean-all` (also cleans Go cache)
+
+4. **Validate Your Changes Locally**:
+   - Install tools (from repo root): `make install-tools`
+   - Run validation (from repo root): `make module-validate MODULE_PATH=your/module/path MODULE_TYPE=<module_type>`
+   - Test locally (from module dir): `make test` (all tests), `make test-common` (common tests)
+
+### For Internal Contributors
+
+Internal contributors have direct repository access with streamlined workflow:
+
+1. **Clone the Repository**:
+   - Clone directly: `git clone https://github.com/matthew-dresden/terraform-modules.git`
+
+2. **Create a Branch**:
+   - Create a feature branch: `git checkout -b feature/your-module-name`
+
+3. **Create Your Module**:
+   - Start from skeleton: `cp -r skeletons/generic-skeleton providers/aws/primitives/your-module-name`
+   - Follow the [module structure requirements](docs/terraform-module-structure.md)
+   - Implement your module functionality
+   - Create examples and tests
+   - **Install module dependencies:**
+     - From your module directory: `make install`
+   - **Format and lint Go code in your module:**
+     - `make go-format` and `make go-lint`
+   - **Generate and check Terraform documentation:**
+     - `make tf-docs` (generate docs)
+     - `make tf-docs-check` (verify docs are up to date)
+   - **Clean up module files:**
+     - `make clean` (removes Terraform and state files)
+     - `make clean-all` (also cleans Go cache)
+
+4. **Validate Your Module**:
+   - Run validation (from repo root): `make module-validate MODULE_PATH=providers/aws/primitives/your-module-name MODULE_TYPE=primitive`
+   - Run tests (from module dir): `make test` (all tests), `make test-common` (common tests)
+
+### PR Title Format and Version Bumps
+
+**IMPORTANT**: Version bumps are determined by the **PR title**, not individual commit messages. When the pipeline auto-merges your PR, it creates a squash commit using the PR title as the commit message. This commit message is what determines the version bump type.
+
+The following PR title prefixes and version bump rules apply to both Terraform module changes and non-Terraform changes in this repository.
+
+This repository uses [Conventional Commits](https://www.conventionalcommits.org/) for automated versioning and changelog generation. The type of version bump is determined by the **PR title prefix**:
+
+| Prefix Example      | Version Bump | Description                                 |
+|--------------------|--------------|---------------------------------------------|
+| `feat!:`           | Major        | Breaking change (any type with `!:`)        |
+| `fix!:`            | Major        | Breaking change (any type with `!:`)        |
+| `refactor!:`       | Major        | Breaking change (any type with `!:`)        |
+| `BREAKING CHANGE`  | Major        | Footer contains `BREAKING CHANGE`           |
+| `feat:`            | Minor        | New feature                                 |
+| `perf:`            | Minor        | Performance improvement                     |
+| `build:`           | Minor        | Build system change                         |
+| `revert:`          | Minor        | Revert commit                               |
+| `release:`         | Minor        | Release commit                              |
+| `module:`          | Minor        | Module-level change                         |
+| `meta:`            | Minor        | Metadata change                             |
+| `ci:`              | Minor        | CI/CD change                                |
+| `fix:`             | Patch        | Bug fix                                     |
+| `chore:`           | Patch        | Chore/maintenance                           |
+| `docs:`            | Patch        | Documentation change                        |
+| `style:`           | Patch        | Code style change                           |
+| `refactor:`        | Patch        | Refactoring (non-breaking)                  |
+| `test:`            | Patch        | Test-related change                         |
+
+- **Use the appropriate prefix for your PR title** to ensure correct versioning.
+- Individual commit messages within the PR do not affect versioning.
+- The pipeline automatically merges approved PRs - **never merge PRs manually through the GitHub UI**.
+- See `.github/SEMANTIC_RELEASE_IMPLEMENTATION.md` for full details.

@@ -1,0 +1,1369 @@
+name: Main Validation
+
+# DISABLED: requires secrets this repository does not have.
+#
+# Every merge-approval, post-merge-revalidation and release-approval job in
+# this workflow authenticates with the GH_APP_ID / GH_APP_PRIVATE_KEY GitHub
+# App secrets and reports to SLACK_WEBHOOK_URL; the Terraform revalidation
+# jobs additionally provision live AWS infrastructure. None of those are
+# configured, so the trigger and every job below are commented out rather
+# than left to fail. Uncomment once GH_APP_ID, GH_APP_PRIVATE_KEY,
+# SLACK_WEBHOOK_URL and the AWS OIDC role are provisioned.
+
+#
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       change_type:
+#         description: 'Type of change (terraform or non-terraform)'
+#         required: true
+#         type: string
+#       contributor_type:
+#         description: 'Type of contributor (Internal or External)'
+#         required: true
+#         type: string
+#       contributor_username:
+#         description: 'Username of the contributor'
+#         required: true
+#         type: string
+#       can_self_approve:
+#         description: 'Whether contributor can self-approve'
+#         required: true
+#         type: string
+#       code_owners:
+#         description: 'Code owners for the changes'
+#         required: true
+#         type: string
+#       pr_number:
+#         description: 'Pull request number'
+#         required: true
+#         type: string
+#       pr_title:
+#         description: 'Pull request title'
+#         required: true
+#         type: string
+#       pr_html_url:
+#         description: 'Pull request HTML URL'
+#         required: true
+#         type: string
+#       module_config:
+#         description: 'Module path and type (JSON: {"path":"", "type":""})'
+#         required: false
+#         type: string
+#         default: '{"path":"", "type":""}'
+#       dryrun:
+#         description: 'Run as dry run (no real merge or release)'
+#         required: false
+#         type: boolean
+#         default: false
+#
+# jobs:
+#   merge-approval-routing:
+#     name: Merge Approval Routing
+#     runs-on: ubuntu-24.04
+#     outputs:
+#       change_type: ${{ github.event.inputs.change_type }}
+#       contributor_type: ${{ github.event.inputs.contributor_type }}
+#       contributor_username: ${{ github.event.inputs.contributor_username }}
+#       can_self_approve: ${{ github.event.inputs.can_self_approve }}
+#       code_owners: ${{ github.event.inputs.code_owners }}
+#       module_path: ${{ steps.parse-module-config.outputs.module_path }}
+#       module_type: ${{ steps.parse-module-config.outputs.module_type }}
+#       pr_number: ${{ github.event.inputs.pr_number }}
+#       pr_title: ${{ github.event.inputs.pr_title }}
+#       pr_html_url: ${{ github.event.inputs.pr_html_url }}
+#       dryrun: ${{ github.event.inputs.dryrun }}
+#       internal: ${{ steps.set-internal.outputs.internal }}
+#       is_non_terraform: ${{ steps.set-routing-flags.outputs.is_non_terraform }}
+#       is_terraform: ${{ steps.set-routing-flags.outputs.is_terraform }}
+#       is_internal_contributor: ${{ steps.set-routing-flags.outputs.is_internal_contributor }}
+#       is_external_contributor: ${{ steps.set-routing-flags.outputs.is_external_contributor }}
+#       can_self_approve_internal: ${{ steps.set-routing-flags.outputs.can_self_approve_internal }}
+#     steps:
+#       - name: Parse module config
+#         id: parse-module-config
+#         run: |
+#           module_config='${{ github.event.inputs.module_config }}'
+#           echo "Raw module_config: $module_config"
+#
+#           # Parse JSON to extract path and type
+#           module_path=$(echo "$module_config" | jq -r '.path // ""')
+#           module_type=$(echo "$module_config" | jq -r '.type // ""')
+#
+#           echo "module_path=$module_path" >> $GITHUB_OUTPUT
+#           echo "module_type=$module_type" >> $GITHUB_OUTPUT
+#
+#           echo "Parsed module_path: $module_path"
+#           echo "Parsed module_type: $module_type"
+#
+#       - name: Set internal flag
+#         id: set-internal
+#         run: |
+#           if [[ "${{ github.event.inputs.contributor_type }}" == "Internal" ]]; then
+#             echo "internal=true" >> $GITHUB_OUTPUT
+#             echo "✅ Contributor is Internal"
+#           else
+#             echo "internal=false" >> $GITHUB_OUTPUT
+#             echo "⚠️ Contributor is External"
+#           fi
+#
+#       - name: Set routing decision flags
+#         id: set-routing-flags
+#         run: |
+#           # Change type flags
+#           if [[ "${{ github.event.inputs.change_type }}" == "non-terraform" ]]; then
+#             echo "is_non_terraform=true" >> $GITHUB_OUTPUT
+#             echo "is_terraform=false" >> $GITHUB_OUTPUT
+#           else
+#             echo "is_non_terraform=false" >> $GITHUB_OUTPUT
+#             echo "is_terraform=true" >> $GITHUB_OUTPUT
+#           fi
+#
+#           # Contributor type flags
+#           if [[ "${{ github.event.inputs.contributor_type }}" == "Internal" ]]; then
+#             echo "is_internal_contributor=true" >> $GITHUB_OUTPUT
+#             echo "is_external_contributor=false" >> $GITHUB_OUTPUT
+#           else
+#             echo "is_internal_contributor=false" >> $GITHUB_OUTPUT
+#             echo "is_external_contributor=true" >> $GITHUB_OUTPUT
+#           fi
+#
+#           # Self-approval capability for internal contributors
+#           if [[ "${{ github.event.inputs.contributor_type }}" == "Internal" && "${{ github.event.inputs.can_self_approve }}" == "true" ]]; then
+#             echo "can_self_approve_internal=true" >> $GITHUB_OUTPUT
+#           else
+#             echo "can_self_approve_internal=false" >> $GITHUB_OUTPUT
+#           fi
+#
+#       - name: Display routing information
+#         run: |
+#           echo "🔀 Merge Approval Routing Configuration"
+#           echo "==============================================="
+#           echo "📋 Input Parameters:"
+#           echo "  Change Type: ${{ github.event.inputs.change_type }}"
+#           echo "  Contributor: ${{ github.event.inputs.contributor_username }} (${{ github.event.inputs.contributor_type }})"
+#           echo "  Can Self-Approve: ${{ github.event.inputs.can_self_approve }}"
+#           echo "  Code Owners: ${{ github.event.inputs.code_owners }}"
+#           echo "  PR Number: ${{ github.event.inputs.pr_number }}"
+#           echo "  PR Title: ${{ github.event.inputs.pr_title }}"
+#           echo "  Dry Run Mode: ${{ github.event.inputs.dryrun }}"
+#           if [[ "${{ github.event.inputs.change_type }}" == "terraform" ]]; then
+#             echo "  Module Path: ${{ steps.parse-module-config.outputs.module_path }}"
+#             echo "  Module Type: ${{ steps.parse-module-config.outputs.module_type }}"
+#           fi
+#           echo ""
+#           echo "🎯 Routing Decisions:"
+#           echo "  Internal Contributor: ${{ steps.set-internal.outputs.internal }}"
+#           echo "  Is Non-Terraform: ${{ steps.set-routing-flags.outputs.is_non_terraform }}"
+#           echo "  Is Terraform: ${{ steps.set-routing-flags.outputs.is_terraform }}"
+#           echo "  Can Self-Approve (Internal): ${{ steps.set-routing-flags.outputs.can_self_approve_internal }}"
+#
+#   debug-routing-output:
+#     name: Debug Routing Output
+#     runs-on: ubuntu-24.04
+#     needs: [merge-approval-routing]
+#     steps:
+#       - name: Validate routing outputs for CI audit and debugging
+#         run: |
+#           echo "🔍 Routing Output Validation"
+#           echo "===================================="
+#           echo "📤 All Routing Outputs:"
+#           echo "  change_type=${{ needs.merge-approval-routing.outputs.change_type }}"
+#           echo "  contributor_type=${{ needs.merge-approval-routing.outputs.contributor_type }}"
+#           echo "  contributor_username=${{ needs.merge-approval-routing.outputs.contributor_username }}"
+#           echo "  can_self_approve=${{ needs.merge-approval-routing.outputs.can_self_approve }}"
+#           echo "  code_owners=${{ needs.merge-approval-routing.outputs.code_owners }}"
+#           echo "  module_path=${{ needs.merge-approval-routing.outputs.module_path }}"
+#           echo "  module_type=${{ needs.merge-approval-routing.outputs.module_type }}"
+#           echo "  pr_number=${{ needs.merge-approval-routing.outputs.pr_number }}"
+#           echo "  pr_title=${{ needs.merge-approval-routing.outputs.pr_title }}"
+#           echo "  pr_html_url=${{ needs.merge-approval-routing.outputs.pr_html_url }}"
+#           echo "  dryrun=${{ needs.merge-approval-routing.outputs.dryrun }}"
+#           echo ""
+#           echo "🎯 Computed Routing Flags:"
+#           echo "  internal=${{ needs.merge-approval-routing.outputs.internal }}"
+#           echo "  is_non_terraform=${{ needs.merge-approval-routing.outputs.is_non_terraform }}"
+#           echo "  is_terraform=${{ needs.merge-approval-routing.outputs.is_terraform }}"
+#           echo "  is_internal_contributor=${{ needs.merge-approval-routing.outputs.is_internal_contributor }}"
+#           echo "  is_external_contributor=${{ needs.merge-approval-routing.outputs.is_external_contributor }}"
+#           echo "  can_self_approve_internal=${{ needs.merge-approval-routing.outputs.can_self_approve_internal }}"
+#           echo ""
+#           echo "🧪 Execution Mode:"
+#           echo "  Dry Run Mode: ${{ needs.merge-approval-routing.outputs.dryrun }}"
+#           echo ""
+#           echo "✅ Routing validation complete - all outputs accessible"
+#
+#   # Non-Terraform merge approval jobs
+#   merge-self-approval-non-terraform-internal:
+#     name: Self-Approval Merge (Non-Terraform Internal)
+#     runs-on: ubuntu-24.04
+#     needs: [merge-approval-routing, debug-routing-output]
+#     if: needs.merge-approval-routing.outputs.is_non_terraform == 'true' && needs.merge-approval-routing.outputs.can_self_approve_internal == 'true'
+#     permissions:
+#       contents: write
+#       id-token: write
+#       pull-requests: write
+#     environment: merge-approval
+#     steps:
+#       - name: Manual approval required for self-approval users
+#         run: |
+#           echo "::notice::🔐 Manual Approval Required"
+#           echo "::notice::Even self-approval users must manually approve merges through GitHub's environment protection"
+#           echo "::notice::This ensures proper audit trail and deliberate approval for all changes"
+#           echo ""
+#           echo "📋 Approval Details:"
+#           echo "  Contributor: ${{ needs.merge-approval-routing.outputs.contributor_username }} (Self-Approval Enabled)"
+#           echo "  Change Type: Non-Terraform"
+#           echo "  Dry Run Mode: ${{ needs.merge-approval-routing.outputs.dryrun }}"
+#           echo "  Environment: merge-approval"
+#
+#       - name: Generate GitHub App Token
+#         id: github-app-token
+#         uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a  # v2
+#         with:
+#           app_id: ${{ secrets.GH_APP_ID }}
+#           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+#
+#       - name: Send self-approval notification to Slack
+#         uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001  # v1.25.0
+#         with:
+#           payload: |
+#             {
+#               "text": ":white_check_mark: Auto-Approved Non-Terraform PR Merge - ${{ github.repository }}",
+#               "blocks": [
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": ":white_check_mark: *Auto-Approved Non-Terraform PR Merge*"
+#                   }
+#                 },
+#                 {
+#                   "type": "header",
+#                   "text": {
+#                     "type": "plain_text",
+#                     "text": ":rocket: Self-Approved Merge - ${{ github.repository }}"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*PR #${{ needs.merge-approval-routing.outputs.pr_number }}*: ${{ needs.merge-approval-routing.outputs.pr_title }}\nAll validation checks passed! PR auto-merged by authorized user.\n<${{ needs.merge-approval-routing.outputs.pr_html_url }}|View Pull Request>"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*Repository:* ${{ github.repository }}\n*Author:* ${{ needs.merge-approval-routing.outputs.contributor_username }} (${{ needs.merge-approval-routing.outputs.contributor_type }} contributor with self-approval privileges)\n*Code Owners:* ${{ needs.merge-approval-routing.outputs.code_owners }}\n*Dry Run Mode:* ${{ needs.merge-approval-routing.outputs.dryrun }}\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow>"
+#                   }
+#                 }
+#               ]
+#             }
+#         env:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+#
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+#
+#       - name: Auto-merge PR (Self-Approval with Admin Bypass)
+#         if: success() && needs.merge-approval-routing.outputs.dryrun != 'true'
+#         env:
+#           GH_TOKEN: ${{ steps.github-app-token.outputs.token }}
+#         run: |
+#           echo "🔓 Auto-merging PR #${{ needs.merge-approval-routing.outputs.pr_number }} by self-approval user with admin bypass"
+#           echo "PR Title: ${{ needs.merge-approval-routing.outputs.pr_title }}"
+#           echo "Author: ${{ needs.merge-approval-routing.outputs.contributor_username }}"
+#
+#           gh pr merge ${{ needs.merge-approval-routing.outputs.pr_number }} \
+#             --admin \
+#             --squash \
+#             --subject "${{ needs.merge-approval-routing.outputs.pr_title }} (#${{ needs.merge-approval-routing.outputs.pr_number }})" \
+#             --body "Self-approved squash merge by authorized user with admin privileges"
+#
+#       - name: Skip merge due to dry run mode
+#         if: success() && needs.merge-approval-routing.outputs.dryrun == 'true'
+#         run: |
+#           echo "🚫 Skipping actual merge due to dry run mode"
+#           echo "PR #${{ needs.merge-approval-routing.outputs.pr_number }} would have been auto-merged by self-approval user with admin bypass"
+#           echo "PR Title: ${{ needs.merge-approval-routing.outputs.pr_title }}"
+#           echo "Author: ${{ needs.merge-approval-routing.outputs.contributor_username }}"
+#
+#   merge-approval-non-terraform-internal:
+#     name: Merge Approval (Non-Terraform Internal)
+#     runs-on: ubuntu-24.04
+#     needs: [merge-approval-routing, debug-routing-output]
+#     if: needs.merge-approval-routing.outputs.is_non_terraform == 'true' && needs.merge-approval-routing.outputs.is_internal_contributor == 'true' && needs.merge-approval-routing.outputs.can_self_approve == 'false'
+#     permissions:
+#       contents: write
+#       id-token: write
+#       pull-requests: write
+#     environment: merge-approval
+#     steps:
+#       - name: Generate GitHub App Token
+#         id: github-app-token
+#         uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a  # v2
+#         with:
+#           app_id: ${{ secrets.GH_APP_ID }}
+#           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+#
+#       - name: Send approval notification to Slack
+#         uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001  # v1.25.0
+#         with:
+#           payload: |
+#             {
+#               "text": "<!here> :mag: Non-Terraform PR Ready for Review - ${{ github.repository }}",
+#               "blocks": [
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "<!here> *Non-Terraform PR Review Needed*"
+#                   }
+#                 },
+#                 {
+#                   "type": "header",
+#                   "text": {
+#                     "type": "plain_text",
+#                     "text": ":mag: PR Ready for Review - ${{ github.repository }}"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*PR #${{ github.event.inputs.pr_number }}*: ${{ github.event.inputs.pr_title }}\nAll validation checks have passed! This PR is ready for review.\n<${{ github.event.inputs.pr_html_url }}|View Pull Request>"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*Repository:* ${{ github.repository }}\n*Author:* ${{ github.event.inputs.contributor_username }} (${{ github.event.inputs.contributor_type }} contributor)\n*Code Owners:* ${{ github.event.inputs.code_owners }}\n*Dry Run Mode:* ${{ needs.merge-approval-routing.outputs.dryrun }}\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Approval>"
+#                   }
+#                 }
+#               ]
+#             }
+#         env:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+#
+#       - name: Squash merge PR
+#         if: success() && needs.merge-approval-routing.outputs.dryrun != 'true'
+#         uses: actions/github-script@v7
+#         with:
+#           github-token: ${{ steps.github-app-token.outputs.token }}
+#           script: |
+#             const { data: pr } = await github.rest.pulls.get({
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               pull_number: ${{ github.event.inputs.pr_number }}
+#             });
+#
+#             await github.rest.pulls.merge({
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               pull_number: ${{ github.event.inputs.pr_number }},
+#               merge_method: 'squash',
+#               commit_title: `${pr.title} (#${pr.number})`,
+#               commit_message: pr.body || 'Squash merge'
+#             });
+#
+#       - name: Skip merge due to dry run mode
+#         if: success() && needs.merge-approval-routing.outputs.dryrun == 'true'
+#         run: |
+#           echo "🚫 Skipping actual merge due to dry run mode"
+#           echo "PR #${{ github.event.inputs.pr_number }} would have been squash merged"
+#           echo "PR Title: ${{ github.event.inputs.pr_title }}"
+#           echo "Author: ${{ github.event.inputs.contributor_username }}"
+#
+#   merge-approval-non-terraform-external:
+#     name: Merge Approval (Non-Terraform External)
+#     runs-on: ubuntu-24.04
+#     needs: [merge-approval-routing, debug-routing-output]
+#     if: needs.merge-approval-routing.outputs.is_non_terraform == 'true' && needs.merge-approval-routing.outputs.is_external_contributor == 'true'
+#     permissions:
+#       contents: write
+#       id-token: write
+#       pull-requests: write
+#     environment: external-contributor-merge-approval
+#     steps:
+#       - name: Generate GitHub App Token
+#         id: github-app-token
+#         uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a  # v2
+#         with:
+#           app_id: ${{ secrets.GH_APP_ID }}
+#           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+#
+#       - name: Send approval notification to Slack
+#         uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001  # v1.25.0
+#         with:
+#           payload: |
+#             {
+#               "text": "<!here> :mag: External Contributor Non-Terraform PR Ready for Review - ${{ github.repository }}",
+#               "blocks": [
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "<!here> *External Contributor Non-Terraform PR Review Needed*"
+#                   }
+#                 },
+#                 {
+#                   "type": "header",
+#                   "text": {
+#                     "type": "plain_text",
+#                     "text": ":mag: External PR Ready for Review - ${{ github.repository }}"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*PR #${{ github.event.inputs.pr_number }}*: ${{ github.event.inputs.pr_title }}\nAll validation checks have passed! This external contributor's PR is ready for review.\n<${{ github.event.inputs.pr_html_url }}|View Pull Request>"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*Repository:* ${{ github.repository }}\n*Author:* ${{ github.event.inputs.contributor_username }} (${{ github.event.inputs.contributor_type }} contributor)\n*Code Owners:* ${{ github.event.inputs.code_owners }}\n*Dry Run Mode:* ${{ needs.merge-approval-routing.outputs.dryrun }}\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Approval>"
+#                   }
+#                 }
+#               ]
+#             }
+#         env:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+#
+#       - name: Squash merge PR
+#         if: success() && needs.merge-approval-routing.outputs.dryrun != 'true'
+#         uses: actions/github-script@v7
+#         with:
+#           github-token: ${{ steps.github-app-token.outputs.token }}
+#           script: |
+#             const { data: pr } = await github.rest.pulls.get({
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               pull_number: ${{ github.event.inputs.pr_number }}
+#             });
+#
+#             await github.rest.pulls.merge({
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               pull_number: ${{ github.event.inputs.pr_number }},
+#               merge_method: 'squash',
+#               commit_title: `${pr.title} (#${pr.number})`,
+#               commit_message: pr.body || 'Squash merge'
+#             });
+#
+#       - name: Skip merge due to dry run mode
+#         if: success() && needs.merge-approval-routing.outputs.dryrun == 'true'
+#         run: |
+#           echo "🚫 Skipping actual merge due to dry run mode"
+#           echo "External contributor PR #${{ github.event.inputs.pr_number }} would have been squash merged"
+#           echo "PR Title: ${{ github.event.inputs.pr_title }}"
+#           echo "Author: ${{ github.event.inputs.contributor_username }}"
+#
+#   # Terraform merge approval jobs
+#   merge-self-approval-terraform-internal:
+#     name: Self-Approval Merge (Terraform Internal)
+#     runs-on: ubuntu-24.04
+#     needs: [merge-approval-routing, debug-routing-output]
+#     if: needs.merge-approval-routing.outputs.is_terraform == 'true' && needs.merge-approval-routing.outputs.can_self_approve_internal == 'true'
+#     permissions:
+#       contents: write
+#       id-token: write
+#       pull-requests: write
+#     environment: merge-approval
+#     steps:
+#       - name: Manual approval required for self-approval users
+#         run: |
+#           echo "::notice::🔐 Manual Approval Required"
+#           echo "::notice::Even self-approval users must manually approve merges through GitHub's environment protection"
+#           echo "::notice::This ensures proper audit trail and deliberate approval for all changes"
+#           echo ""
+#           echo "📋 Approval Details:"
+#           echo "  Contributor: ${{ needs.merge-approval-routing.outputs.contributor_username }} (Self-Approval Enabled)"
+#           echo "  Change Type: Terraform Module"
+#           echo "  Module: ${{ needs.merge-approval-routing.outputs.module_path }}"
+#           echo "  Dry Run Mode: ${{ needs.merge-approval-routing.outputs.dryrun }}"
+#           echo "  Environment: merge-approval"
+#
+#       - name: Generate GitHub App Token
+#         id: github-app-token
+#         uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a  # v2
+#         with:
+#           app_id: ${{ secrets.GH_APP_ID }}
+#           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+#
+#       - name: Send self-approval notification to Slack
+#         uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001  # v1.25.0
+#         with:
+#           payload: |
+#             {
+#               "text": ":white_check_mark: Auto-Approved Terraform Module Merge - ${{ github.repository }}/${{ needs.merge-approval-routing.outputs.module_path }}",
+#               "blocks": [
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": ":white_check_mark: *Auto-Approved Terraform Module Merge*"
+#                   }
+#                 },
+#                 {
+#                   "type": "header",
+#                   "text": {
+#                     "type": "plain_text",
+#                     "text": ":rocket: Self-Approved Merge - ${{ github.repository }}"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*PR #${{ github.event.inputs.pr_number }}*: ${{ github.event.inputs.pr_title }}\nAll validation checks passed! Module auto-merged by authorized user.\n<${{ github.event.inputs.pr_html_url }}|View Pull Request>"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*Repository:* ${{ github.repository }}\n*Module:* ${{ needs.merge-approval-routing.outputs.module_path }}\n*Author:* ${{ github.event.inputs.contributor_username }} (${{ github.event.inputs.contributor_type }} contributor with self-approval privileges)\n*Code Owners:* ${{ github.event.inputs.code_owners }}\n*Dry Run Mode:* ${{ needs.merge-approval-routing.outputs.dryrun }}\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow>"
+#                   }
+#                 }
+#               ]
+#             }
+#         env:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+#
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+#
+#       - name: Auto-merge PR (Self-Approval with Admin Bypass)
+#         if: success() && needs.merge-approval-routing.outputs.dryrun != 'true'
+#         env:
+#           GH_TOKEN: ${{ steps.github-app-token.outputs.token }}
+#         run: |
+#           echo "🔓 Auto-merging PR #${{ github.event.inputs.pr_number }} by self-approval user with admin bypass"
+#           echo "PR Title: ${{ github.event.inputs.pr_title }}"
+#           echo "Author: ${{ github.event.inputs.contributor_username }}"
+#           echo "Module: ${{ needs.merge-approval-routing.outputs.module_path }}"
+#
+#           gh pr merge ${{ github.event.inputs.pr_number }} \
+#             --admin \
+#             --squash \
+#             --subject "${{ github.event.inputs.pr_title }} (#${{ github.event.inputs.pr_number }})" \
+#             --body "Self-approved squash merge by authorized user with admin privileges - Module: ${{ needs.merge-approval-routing.outputs.module_path }}"
+#
+#       - name: Skip merge due to dry run mode
+#         if: success() && needs.merge-approval-routing.outputs.dryrun == 'true'
+#         run: |
+#           echo "🚫 Skipping actual merge due to dry run mode"
+#           echo "Terraform module PR #${{ github.event.inputs.pr_number }} would have been auto-merged by self-approval user with admin bypass"
+#           echo "PR Title: ${{ github.event.inputs.pr_title }}"
+#           echo "Author: ${{ github.event.inputs.contributor_username }}"
+#           echo "Module: ${{ needs.merge-approval-routing.outputs.module_path }}"
+#
+#   merge-approval-terraform-internal:
+#     name: Merge Approval (Terraform Internal)
+#     runs-on: ubuntu-24.04
+#     needs: [merge-approval-routing, debug-routing-output]
+#     if: needs.merge-approval-routing.outputs.is_terraform == 'true' && needs.merge-approval-routing.outputs.is_internal_contributor == 'true' && needs.merge-approval-routing.outputs.can_self_approve == 'false'
+#     permissions:
+#       contents: write
+#       id-token: write
+#       pull-requests: write
+#     environment: merge-approval
+#     steps:
+#       - name: Generate GitHub App Token
+#         id: github-app-token
+#         uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a  # v2
+#         with:
+#           app_id: ${{ secrets.GH_APP_ID }}
+#           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+#
+#       - name: Send approval notification to Slack
+#         uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001  # v1.25.0
+#         with:
+#           payload: |
+#             {
+#               "text": "<!here> :mag: Terraform Module PR Ready for Review - ${{ github.repository }}/${{ needs.merge-approval-routing.outputs.module_path }}",
+#               "blocks": [
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "<!here> *Terraform Module PR Review Needed*"
+#                   }
+#                 },
+#                 {
+#                   "type": "header",
+#                   "text": {
+#                     "type": "plain_text",
+#                     "text": ":mag: Module Ready for Review - ${{ github.repository }}"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*PR #${{ github.event.inputs.pr_number }}*: ${{ github.event.inputs.pr_title }}\nAll validation checks have passed! This Terraform module is ready for review.\n<${{ github.event.inputs.pr_html_url }}|View Pull Request>"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*Repository:* ${{ github.repository }}\n*Module:* ${{ needs.merge-approval-routing.outputs.module_path }}\n*Author:* ${{ github.event.inputs.contributor_username }} (${{ github.event.inputs.contributor_type }} contributor)\n*Code Owners:* ${{ github.event.inputs.code_owners }}\n*Dry Run Mode:* ${{ needs.merge-approval-routing.outputs.dryrun }}\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Approval>"
+#                   }
+#                 }
+#               ]
+#             }
+#         env:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+#
+#       - name: Squash merge PR
+#         if: success() && needs.merge-approval-routing.outputs.dryrun != 'true'
+#         uses: actions/github-script@v7
+#         with:
+#           github-token: ${{ steps.github-app-token.outputs.token }}
+#           script: |
+#             const { data: pr } = await github.rest.pulls.get({
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               pull_number: ${{ github.event.inputs.pr_number }}
+#             });
+#
+#             await github.rest.pulls.merge({
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               pull_number: ${{ github.event.inputs.pr_number }},
+#               merge_method: 'squash',
+#               commit_title: `${pr.title} (#${pr.number})`,
+#               commit_message: pr.body || 'Squash merge'
+#             });
+#
+#       - name: Skip merge due to dry run mode
+#         if: success() && needs.merge-approval-routing.outputs.dryrun == 'true'
+#         run: |
+#           echo "🚫 Skipping actual merge due to dry run mode"
+#           echo "Terraform module PR #${{ github.event.inputs.pr_number }} would have been squash merged"
+#           echo "PR Title: ${{ github.event.inputs.pr_title }}"
+#           echo "Author: ${{ github.event.inputs.contributor_username }}"
+#           echo "Module: ${{ needs.merge-approval-routing.outputs.module_path }}"
+#
+#   merge-approval-terraform-external:
+#     name: Merge Approval (Terraform External)
+#     runs-on: ubuntu-24.04
+#     needs: [merge-approval-routing, debug-routing-output]
+#     if: needs.merge-approval-routing.outputs.is_terraform == 'true' && needs.merge-approval-routing.outputs.is_external_contributor == 'true'
+#     permissions:
+#       contents: write
+#       id-token: write
+#       pull-requests: write
+#     environment: external-contributor-merge-approval
+#     steps:
+#       - name: Generate GitHub App Token
+#         id: github-app-token
+#         uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a  # v2
+#         with:
+#           app_id: ${{ secrets.GH_APP_ID }}
+#           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+#
+#       - name: Send approval notification to Slack
+#         uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001  # v1.25.0
+#         with:
+#           payload: |
+#             {
+#               "text": "<!here> :mag: External Contributor Terraform Module PR Ready for Review - ${{ github.repository }}/${{ needs.merge-approval-routing.outputs.module_path }}",
+#               "blocks": [
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "<!here> *External Contributor Terraform Module PR Review Needed*"
+#                   }
+#                 },
+#                 {
+#                   "type": "header",
+#                   "text": {
+#                     "type": "plain_text",
+#                     "text": ":mag: External Module Ready for Review - ${{ github.repository }}"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*PR #${{ github.event.inputs.pr_number }}*: ${{ github.event.inputs.pr_title }}\nAll validation checks have passed! This external contributor's Terraform module is ready for review.\n<${{ github.event.inputs.pr_html_url }}|View Pull Request>"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*Repository:* ${{ github.repository }}\n*Module:* ${{ needs.merge-approval-routing.outputs.module_path }}\n*Author:* ${{ github.event.inputs.contributor_username }} (${{ github.event.inputs.contributor_type }} contributor)\n*Code Owners:* ${{ github.event.inputs.code_owners }}\n*Dry Run Mode:* ${{ needs.merge-approval-routing.outputs.dryrun }}\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Approval>"
+#                   }
+#                 }
+#               ]
+#             }
+#         env:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+#
+#       - name: Squash merge PR
+#         if: success() && needs.merge-approval-routing.outputs.dryrun != 'true'
+#         uses: actions/github-script@v7
+#         with:
+#           github-token: ${{ steps.github-app-token.outputs.token }}
+#           script: |
+#             const { data: pr } = await github.rest.pulls.get({
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               pull_number: ${{ github.event.inputs.pr_number }}
+#             });
+#
+#             await github.rest.pulls.merge({
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               pull_number: ${{ github.event.inputs.pr_number }},
+#               merge_method: 'squash',
+#               commit_title: `${pr.title} (#${pr.number})`,
+#               commit_message: pr.body || 'Squash merge'
+#             });
+#
+#       - name: Skip merge due to dry run mode
+#         if: success() && needs.merge-approval-routing.outputs.dryrun == 'true'
+#         run: |
+#           echo "🚫 Skipping actual merge due to dry run mode"
+#           echo "External contributor Terraform module PR #${{ github.event.inputs.pr_number }} would have been squash merged"
+#           echo "PR Title: ${{ github.event.inputs.pr_title }}"
+#           echo "Author: ${{ github.event.inputs.contributor_username }}"
+#           echo "Module: ${{ needs.merge-approval-routing.outputs.module_path }}"
+#
+#   # Routing jobs to determine post-merge execution
+#   merge-approval-routing-non-terraform:
+#     name: Merge Approval Routing (Non-Terraform)
+#     runs-on: ubuntu-24.04
+#     needs:
+#       - merge-self-approval-non-terraform-internal
+#       - merge-approval-non-terraform-internal
+#       - merge-approval-non-terraform-external
+#     if: always() && github.event.inputs.change_type == 'non-terraform'
+#     outputs:
+#       should_run_post_merge: ${{ steps.set.outputs.should_run_post_merge }}
+#     steps:
+#       - name: Determine if post-merge revalidation should run
+#         id: set
+#         run: |
+#           echo "should_run_post_merge=false" >> "$GITHUB_OUTPUT"
+#           if [[ "${{ needs.merge-self-approval-non-terraform-internal.result }}" == "success" ]] ||
+#              [[ "${{ needs.merge-approval-non-terraform-internal.result }}" == "success" ]] ||
+#              [[ "${{ needs.merge-approval-non-terraform-external.result }}" == "success" ]]; then
+#             echo "should_run_post_merge=true" >> "$GITHUB_OUTPUT"
+#             echo "✅ Post-merge revalidation will run - at least one merge approval succeeded"
+#           else
+#             echo "❌ Post-merge revalidation will not run - no merge approvals succeeded"
+#           fi
+#
+#   merge-approval-routing-terraform:
+#     name: Merge Approval Routing (Terraform)
+#     runs-on: ubuntu-24.04
+#     needs:
+#       - merge-self-approval-terraform-internal
+#       - merge-approval-terraform-internal
+#       - merge-approval-terraform-external
+#     if: always() && github.event.inputs.change_type == 'terraform'
+#     outputs:
+#       should_run_post_merge: ${{ steps.set.outputs.should_run_post_merge }}
+#     steps:
+#       - name: Determine if post-merge revalidation should run
+#         id: set
+#         run: |
+#           echo "should_run_post_merge=false" >> "$GITHUB_OUTPUT"
+#           if [[ "${{ needs.merge-self-approval-terraform-internal.result }}" == "success" ]] ||
+#              [[ "${{ needs.merge-approval-terraform-internal.result }}" == "success" ]] ||
+#              [[ "${{ needs.merge-approval-terraform-external.result }}" == "success" ]]; then
+#             echo "should_run_post_merge=true" >> "$GITHUB_OUTPUT"
+#             echo "✅ Post-merge revalidation will run - at least one merge approval succeeded"
+#           else
+#             echo "❌ Post-merge revalidation will not run - no merge approvals succeeded"
+#           fi
+#
+#   # Post-merge validation
+#   post-merge-revalidation-non-terraform:
+#     name: Post-Merge Revalidation (Non-Terraform)
+#     runs-on: ubuntu-24.04
+#     needs: 
+#       - merge-approval-routing
+#       - merge-approval-routing-non-terraform
+#     if: always() && needs.merge-approval-routing-non-terraform.outputs.should_run_post_merge == 'true'
+#     steps:
+#       - name: Checkout branch (main for production, current branch for dry run)
+#         uses: actions/checkout@v4
+#         with:
+#           ref: ${{ needs.merge-approval-routing.outputs.dryrun == 'true' && github.ref || 'main' }}
+#
+#       - name: Show validation context
+#         run: |
+#           echo "🔍 Non-Terraform Validation Context:"
+#           echo "Branch: $(git branch --show-current)"
+#           echo "Commit: $(git log --oneline -1)"
+#           echo "Directory: $(pwd)"
+#
+#       - name: Install system dependencies
+#         run: |
+#           sudo apt-get update
+#           sudo apt-get install -y curl bc
+#
+#       - name: Install ASDF
+#         run: |
+#           git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.15.0
+#           echo "$HOME/.asdf/bin" >> $GITHUB_PATH
+#           echo "$HOME/.asdf/shims" >> $GITHUB_PATH
+#           source $HOME/.asdf/asdf.sh
+#
+#       - name: Install ASDF plugins and tools (excluding Python)
+#         run: |
+#           cd $GITHUB_WORKSPACE
+#           # Install tools needed for non-terraform validation
+#           for tool in golang jq opa; do
+#             if grep -q "^$tool " .tool-versions; then
+#               echo "Installing $tool..."
+#               asdf plugin add $tool || true
+#               VERSION=$(grep "^$tool " .tool-versions | awk '{print $2}')
+#               asdf install $tool $VERSION
+#             fi
+#           done
+#           asdf reshim
+#
+#       - name: Configure environment
+#         run: make configure
+#
+#       - name: Install Go dependencies
+#         run: make go-install
+#
+#       - name: Run Go linting
+#         run: make go-lint
+#
+#       - name: Run Go formatting
+#         run: make go-format
+#
+#       - name: Run Go Unit Tests
+#         run: make go-unit-test
+#
+#       - name: Run Go Test Coverage
+#         run: make go-unit-test-coverage
+#
+#       - name: Run rego linting
+#         run: make rego-lint
+#
+#       - name: Run rego formatting
+#         run: make rego-format
+#
+#       - name: Run rego Unit Tests
+#         run: make rego-unit-test
+#
+#       - name: Run rego Test Coverage
+#         run: make rego-unit-test-coverage
+#
+#       - name: Check Rego Test Coverage Threshold
+#         run: |
+#           echo "Running Rego coverage check..."
+#           COVERAGE_JSON=$(make rego-unit-test-coverage-json 2>/dev/null)
+#           COVERAGE=$(echo "$COVERAGE_JSON" | grep -o '"total": [0-9.]*' | awk '{print $2}')
+#           THRESHOLD=95
+#
+#           if (( $(echo "$COVERAGE >= $THRESHOLD" | bc -l) )); then
+#             echo -e "\033[32mPASS: Coverage is $COVERAGE% (threshold: $THRESHOLD%)\033[0m"
+#             exit 0
+#           else
+#             echo -e "\033[31mFAIL: Coverage is $COVERAGE% (threshold: $THRESHOLD%)\033[0m"
+#             exit 1
+#           fi
+#
+#       - name: Run Rego Integration Tests
+#         run: make rego-integration-test
+#
+#       - name: Send post-merge validation success to Slack
+#         if: success()
+#         uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001  # v1.25.0
+#         with:
+#           payload: |
+#             {
+#               "text": "<!here> :white_check_mark: Post-Merge Tests Passed - ${{ github.repository }}",
+#               "blocks": [
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "<!here> *Release Approval Required*"
+#                   }
+#                 },
+#                 {
+#                   "type": "header",
+#                   "text": {
+#                     "type": "plain_text",
+#                     "text": ":white_check_mark: All Automated Tests Passed - ${{ github.repository }}"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "All automated tests have passed on the recent merge! Final release approval required.\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*Repository:* ${{ github.repository }}\n*Contributors:* ${{ github.event.inputs.contributor_username }} (${{ github.event.inputs.contributor_type }} contributor)\n*Code Owners:* ${{ github.event.inputs.code_owners }}\n*Dry Run Mode:* ${{ needs.merge-approval-routing.outputs.dryrun }}"
+#                   }
+#                 }
+#               ]
+#             }
+#         env:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+#
+#       - name: Send post-merge validation failure to Slack
+#         if: failure()
+#         uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001  # v1.25.0
+#         with:
+#           payload: |
+#             {
+#               "text": "<!here> :x: Post-Merge Validation Failed - ${{ github.repository }}",
+#               "blocks": [
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "<!here> *Post-Merge Validation Failed* - Immediate attention required!"
+#                   }
+#                 },
+#                 {
+#                   "type": "header",
+#                   "text": {
+#                     "type": "plain_text",
+#                     "text": ":x: Post-Merge Failed - ${{ github.repository }}"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "fields": [
+#                     {
+#                       "type": "mrkdwn",
+#                       "text": "*Repository:* ${{ github.repository }}"
+#                     },
+#                     {
+#                       "type": "mrkdwn",
+#                       "text": "*Branch:* `main`"
+#                     }
+#                   ]
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*Commit:* `${{ github.sha }}`"
+#                   }
+#                 },
+#                 {
+#                   "type": "actions",
+#                   "elements": [
+#                     {
+#                       "type": "button",
+#                       "text": {
+#                         "type": "plain_text",
+#                         "text": "View Workflow Run"
+#                       },
+#                       "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+#                     }
+#                   ]
+#                 }
+#               ]
+#             }
+#         env:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+#
+#   post-merge-revalidation-terraform:
+#     name: Post-Merge Revalidation (Terraform)
+#     runs-on: ubuntu-24.04
+#     permissions:
+#       contents: read
+#       id-token: write
+#     needs: 
+#       - merge-approval-routing
+#       - merge-approval-routing-terraform
+#     if: always() && needs.merge-approval-routing-terraform.outputs.should_run_post_merge == 'true'
+#     steps:
+#       - name: Checkout branch (main for production, current branch for dry run)
+#         uses: actions/checkout@v4
+#         with:
+#           ref: ${{ needs.merge-approval-routing.outputs.dryrun == 'true' && github.ref || 'main' }}
+#
+#       - name: Show validation context
+#         run: |
+#           echo "🔍 Terraform Validation Context:"
+#           echo "Branch: $(git branch --show-current)"
+#           echo "Commit: $(git log --oneline -1)"
+#           echo "Directory: $(pwd)"
+#
+#       - name: Install system dependencies
+#         run: |
+#           sudo apt-get update
+#           sudo apt-get install -y curl bc
+#
+#       - name: Install ASDF
+#         run: |
+#           git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.15.0
+#           echo "$HOME/.asdf/bin" >> $GITHUB_PATH
+#           echo "$HOME/.asdf/shims" >> $GITHUB_PATH
+#           source $HOME/.asdf/asdf.sh
+#
+#       - name: Install ASDF plugins and tools (excluding Python)
+#         run: |
+#           cd $GITHUB_WORKSPACE
+#           # Install all tools needed for Terraform validation
+#           for tool in golang jq opa terraform terraform-docs tflint tfsec; do
+#             if grep -q "^$tool " .tool-versions; then
+#               echo "Installing $tool..."
+#               asdf plugin add $tool || true
+#               VERSION=$(grep "^$tool " .tool-versions | awk '{print $2}')
+#               asdf install $tool $VERSION
+#             fi
+#           done
+#           asdf reshim
+#
+#       - name: Configure AWS credentials for AWS modules
+#         if: needs.merge-approval-routing.outputs.is_terraform == 'true' && startsWith(needs.merge-approval-routing.outputs.module_path, 'providers/aws/')
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           role-to-assume: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+#           role-session-name: GitHubActions-PostMerge-${{ github.run_id }}
+#           aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+#           audience: sts.amazonaws.com
+#
+#       - name: Configure environment
+#         run: make configure
+#
+#       - name: Run module validation
+#         run: make module-validate MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }} MODULE_TYPE=${{ needs.merge-approval-routing.outputs.module_type }}
+#
+#       - name: Clean Terraform state before linting
+#         run: |
+#           echo "Current working directory: $(pwd)"
+#           echo "Checking if tf-clean target exists in Makefile:"
+#           grep -n "tf-clean:" Makefile || echo "tf-clean target not found in Makefile"
+#           make tf-clean MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }}
+#
+#       - name: Run Terraform linting
+#         run: make tf-lint MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }}
+#
+#       - name: Clean Terraform state before formatting check
+#         run: make tf-clean MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }}
+#
+#       - name: Run Terraform formatting check
+#         run: make tf-format MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }}
+#
+#       - name: Clean Terraform state before documentation check
+#         run: make tf-clean MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }}
+#
+#       - name: Check Terraform documentation is up-to-date
+#         run: make tf-docs-check MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }}
+#
+#       - name: Clean Terraform state before security checks
+#         run: make tf-clean MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }}
+#
+#       - name: Run security checks
+#         run: make tf-security MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }}
+#
+#       - name: Clean Terraform state before plan
+#         run: make tf-clean MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }}
+#
+#       - name: Run Terraform plan
+#         run: make tf-plan MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }}
+#
+#       - name: Configure mpm and install Go dependencies for module tests
+#         run: |
+#           cd ${{ needs.merge-approval-routing.outputs.module_path }}
+#           make mpm-configure
+#           make install
+#
+#       - name: Show module validation context
+#         run: |
+#           cd ${{ needs.merge-approval-routing.outputs.module_path }}
+#           echo "🔍 Module Validation Context:"
+#           echo "Branch: $(git branch --show-current)"
+#           echo "Commit: $(git log --oneline -1)"
+#           echo "Directory: $(pwd)"
+#           echo "Module: ${{ needs.merge-approval-routing.outputs.module_path }}"
+#
+#       - name: Run Go linting on module tests
+#         run: |
+#           cd ${{ needs.merge-approval-routing.outputs.module_path }}
+#           make go-lint
+#
+#       - name: Run Go formatting check on module tests
+#         run: |
+#           cd ${{ needs.merge-approval-routing.outputs.module_path }}
+#           make go-format
+#
+#       - name: Clean Terraform state before module tests
+#         run: make tf-clean MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }}
+#
+#       - name: Run module tests
+#         run: make tf-test MODULE_PATH=${{ needs.merge-approval-routing.outputs.module_path }}
+#
+#       - name: Send post-merge validation success to Slack
+#         if: success()
+#         uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001  # v1.25.0
+#         with:
+#           payload: |
+#             {
+#               "text": "<!here> :white_check_mark: Terraform Module Post-Merge Tests Passed - ${{ github.repository }}/${{ needs.merge-approval-routing.outputs.module_path }}",
+#               "blocks": [
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "<!here> *Release Approval Required*"
+#                   }
+#                 },
+#                 {
+#                   "type": "header",
+#                   "text": {
+#                     "type": "plain_text",
+#                     "text": ":white_check_mark: All Automated Tests Passed - ${{ github.repository }}"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "All automated tests have passed on the recent merge! Final release approval required.\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Workflow Run>"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*Repository:* ${{ github.repository }}\n*Module:* ${{ needs.merge-approval-routing.outputs.module_path }}\n*Contributors:* ${{ github.event.inputs.contributor_username }} (${{ github.event.inputs.contributor_type }} contributor)\n*Code Owners:* ${{ github.event.inputs.code_owners }}\n*Dry Run Mode:* ${{ needs.merge-approval-routing.outputs.dryrun }}"
+#                   }
+#                 }
+#               ]
+#             }
+#         env:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+#
+#       - name: Send post-merge validation failure to Slack
+#         if: failure()
+#         uses: slackapi/slack-github-action@6c661ce58804a1a20f6dc5fbee7f0381b469e001  # v1.25.0
+#         with:
+#           payload: |
+#             {
+#               "text": "<!here> :x: Terraform Module Post-Merge Validation Failed - ${{ github.repository }}/${{ needs.merge-approval-routing.outputs.module_path }}",
+#               "blocks": [
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "<!here> *Terraform Module Post-Merge Validation Failed* - Immediate attention required!"
+#                   }
+#                 },
+#                 {
+#                   "type": "header",
+#                   "text": {
+#                     "type": "plain_text",
+#                     "text": ":x: Post-Merge Failed - ${{ github.repository }}"
+#                   }
+#                 },
+#                 {
+#                   "type": "section",
+#                   "fields": [
+#                     {
+#                       "type": "mrkdwn",
+#                       "text": "*Repository:* ${{ github.repository }}"
+#                     },
+#                     {
+#                       "type": "mrkdwn",
+#                       "text": "*Module:* `${{ needs.merge-approval-routing.outputs.module_path }}`"
+#                     }
+#                   ]
+#                 },
+#                 {
+#                   "type": "section",
+#                   "fields": [
+#                     {
+#                       "type": "mrkdwn",
+#                       "text": "*Type:* `${{ needs.merge-approval-routing.outputs.module_type }}`"
+#                     },
+#                     {
+#                       "type": "mrkdwn",
+#                       "text": "*Branch:* `main`"
+#                     }
+#                   ]
+#                 },
+#                 {
+#                   "type": "section",
+#                   "text": {
+#                     "type": "mrkdwn",
+#                     "text": "*Commit:* `${{ github.sha }}`"
+#                   }
+#                 },
+#                 {
+#                   "type": "actions",
+#                   "elements": [
+#                     {
+#                       "type": "button",
+#                       "text": {
+#                         "type": "plain_text",
+#                         "text": "View Workflow Run"
+#                       },
+#                       "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+#                     }
+#                   ]
+#                 }
+#               ]
+#             }
+#         env:
+#           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+#
+#   qa-validation-complete:
+#     name: QA Validation Complete
+#     runs-on: ubuntu-24.04
+#     needs: [merge-approval-routing, post-merge-revalidation-non-terraform, post-merge-revalidation-terraform]
+#     if: always() && (needs.post-merge-revalidation-non-terraform.result == 'success' || needs.post-merge-revalidation-terraform.result == 'success')
+#     steps:
+#       - name: Mark QA validation as complete
+#         run: |
+#           echo "::group::✅ QA Validation Complete"
+#           if [ "${{ needs.merge-approval-routing.outputs.dryrun }}" = "true" ]; then
+#             echo "::notice::🧪 Dry Run Mode: All post-merge validation checks have passed"
+#             echo "::notice::This status check indicates that all quality assurance requirements are met in dry run mode"
+#             echo "::notice::Ready for release approval process (dry run)"
+#           else
+#             echo "::notice::✅ All post-merge validation checks have passed"
+#             echo "::notice::This status check indicates that all quality assurance requirements are met"
+#             echo "::notice::Ready for release approval process"
+#           fi
+#           echo "::notice::Dry Run Mode: ${{ needs.merge-approval-routing.outputs.dryrun }}"
+#           echo "::endgroup::"
+#
+#   release-approval:
+#     name: Release Approval
+#     runs-on: ubuntu-24.04
+#     needs: [merge-approval-routing, qa-validation-complete]
+#     if: always() && needs.qa-validation-complete.result == 'success' && needs.merge-approval-routing.outputs.dryrun != 'true'
+#     outputs:
+#       dryrun: ${{ needs.merge-approval-routing.outputs.dryrun }}
+#     permissions:
+#       contents: read
+#       id-token: write
+#     environment: qa-certification
+#     steps:
+#       - name: Generate GitHub App Token
+#         id: github-app-token
+#         uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a  # v2
+#         with:
+#           app_id: ${{ secrets.GH_APP_ID }}
+#           private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+#
+#       - name: Trigger release workflow
+#         if: success()
+#         uses: actions/github-script@v7
+#         with:
+#           github-token: ${{ steps.github-app-token.outputs.token }}
+#           script: |
+#             const releaseInputs = {
+#               release_type: '${{ github.event.inputs.change_type }}' === 'terraform' ? 'terraform-module' : 'non-terraform',
+#               contributor_type: '${{ github.event.inputs.contributor_type }}',
+#               contributor_username: '${{ github.event.inputs.contributor_username }}'
+#             };
+#
+#             if ('${{ github.event.inputs.change_type }}' === 'terraform') {
+#               releaseInputs.module_path = '${{ needs.merge-approval-routing.outputs.module_path }}';
+#             }
+#
+#             await github.rest.actions.createWorkflowDispatch({
+#               owner: context.repo.owner,
+#               repo: context.repo.repo,
+#               workflow_id: 'release.yml',
+#               ref: 'main',
+#               inputs: releaseInputs
+#             });
+#
+#   release-approval-dry-run:
+#     name: Release Approval (Dry Run)
+#     runs-on: ubuntu-24.04
+#     needs: [merge-approval-routing, qa-validation-complete]
+#     if: always() && needs.qa-validation-complete.result == 'success' && needs.merge-approval-routing.outputs.dryrun == 'true'
+#     environment: qa-certification
+#     outputs:
+#       dryrun: ${{ needs.merge-approval-routing.outputs.dryrun }}
+#     steps:
+#       - name: Manual approval required for release (dry run simulation)
+#         run: |
+#           echo "::notice::🔐 Manual Release Approval Required"
+#           echo "::notice::All releases require manual approval through GitHub's environment protection"
+#           echo "::notice::This dry run simulates the approval process without triggering actual release"
+#           echo ""
+#           echo "📋 Release Approval Details:"
+#           echo "  Release Type: ${{ needs.merge-approval-routing.outputs.change_type == 'terraform' && 'terraform-module' || 'non-terraform' }}"
+#           echo "  Contributor: ${{ needs.merge-approval-routing.outputs.contributor_username }}"
+#           echo "  Dry Run Mode: ${{ needs.merge-approval-routing.outputs.dryrun }}"
+#           echo "  Environment: qa-certification"
+#           if [[ "${{ needs.merge-approval-routing.outputs.change_type }}" == "terraform" ]]; then
+#             echo "  Module: ${{ needs.merge-approval-routing.outputs.module_path }}"
+#           fi
+#
+#       - name: Skip release trigger due to dry run mode
+#         run: |
+#           echo "::group::🚫 Dry Run Mode - Release Trigger Skipped"
+#           echo "::notice::Dry run mode is active - no actual release will be triggered"
+#           echo ""
+#           echo "::notice::Release workflow would have been triggered with the following configuration:"
+#           echo "::group::Release Configuration Details"
+#           echo "  📦 Release Type: ${{ needs.merge-approval-routing.outputs.change_type == 'terraform' && 'terraform-module' || 'non-terraform' }}"
+#           echo "  👤 Contributor Type: ${{ needs.merge-approval-routing.outputs.contributor_type }}"
+#           echo "  🏷️ Contributor Username: ${{ needs.merge-approval-routing.outputs.contributor_username }}"
+#           if [[ "${{ needs.merge-approval-routing.outputs.change_type }}" == "terraform" ]]; then
+#             echo "  📁 Module Path: ${{ needs.merge-approval-routing.outputs.module_path }}"
+#             echo "  🔧 Module Type: ${{ needs.merge-approval-routing.outputs.module_type }}"
+#           fi
+#           echo "::endgroup::"
+#           echo ""
+#           echo "::notice::✅ All validation checks have passed successfully in dry run mode"
+#           echo "::notice::🎯 The workflow is ready for production execution when dry run is disabled"
+#           echo "::endgroup::"
+#
+#   release-successfully-triggered:
+#     name: Release Successfully Triggered
+#     runs-on: ubuntu-24.04
+#     needs: [merge-approval-routing, release-approval, release-approval-dry-run]
+#     if: always() && (needs.release-approval.result == 'success' || needs.release-approval-dry-run.result == 'success')
+#     steps:
+#       - name: Mark release as complete
+#         run: |
+#           echo "::group::🎯 Workflow Completion Summary"
+#           if [[ "${{ needs.merge-approval-routing.outputs.dryrun }}" == "true" ]]; then
+#             echo "🧪 **Dry Run Complete** - All validation processes have completed successfully"
+#             echo "::notice::This status check indicates the full validation cycle is complete in dry run mode"
+#             echo "::notice::All quality gates have been passed and the workflow would be ready for release"
+#             echo "::notice::Dry Run Mode: ${{ needs.merge-approval-routing.outputs.dryrun }}"
+#           else
+#             echo "🎉 **Release Complete** - All validation and release processes have completed successfully"
+#             echo "::notice::This status check indicates the full release cycle is complete"
+#             echo "::notice::All quality gates have been passed and the release is ready for production"
+#             echo "::notice::Dry Run Mode: ${{ needs.merge-approval-routing.outputs.dryrun }}"
+#           fi
+#           echo "::endgroup::"

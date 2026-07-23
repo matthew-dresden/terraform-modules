@@ -1,0 +1,307 @@
+name: PR Validation
+
+# CI is restricted to the OFFLINE gate.
+#
+# The contributor-analysis / merge-approval routing jobs required the
+# GH_APP_ID + GH_APP_PRIVATE_KEY GitHub App secrets, and the Terraform path
+# required AWS credentials (tf-plan and tf-test provision live infrastructure,
+# and five aws_caller_identity / aws_region data sources need a real session).
+# Neither is configured, so those jobs are omitted here rather than left to
+# fail. `terraform plan`, `make tf-plan`, `make tf-test` and
+# `make test-all-terraform-modules` are deliberately NOT run in CI.
+#
+# What remains is everything that can be verified without credentials:
+#   - make test-all-non-tf-module-code (go-lint, go-unit-test, rego-lint,
+#     rego-unit-test, rego-integration-test)
+#   - make tf-format / make tf-docs-check on the changed module
+#   - make module-validate on the changed module
+#   - terraform init -backend=false && terraform validate on the changed module
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate:
+    name: Validate PR
+    runs-on: ubuntu-24.04
+    outputs:
+      is_module: ${{ steps.detect-module.outputs.is_module }}
+      module_path: ${{ steps.detect-module.outputs.module_path }}
+      module_type: ${{ steps.detect-module.outputs.module_type }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Simulate merge
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git fetch origin ${{ github.base_ref }}
+          git fetch origin ${{ github.head_ref }}
+          git checkout -b pr-validation origin/${{ github.base_ref }}
+          git merge --no-commit --no-ff origin/${{ github.head_ref }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl bc
+
+      - name: Install ASDF
+        run: |
+          git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.15.0
+          echo "$HOME/.asdf/bin" >> $GITHUB_PATH
+          echo "$HOME/.asdf/shims" >> $GITHUB_PATH
+          source $HOME/.asdf/asdf.sh
+
+      - name: Install ASDF plugins and tools (excluding Python)
+        run: |
+          cd $GITHUB_WORKSPACE
+          for tool in golang jq opa terraform terraform-docs tflint tfsec; do
+            if grep -q "^$tool " .tool-versions; then
+              echo "Installing $tool..."
+              asdf plugin add $tool || true
+              VERSION=$(grep "^$tool " .tool-versions | awk '{print $2}')
+              asdf install $tool $VERSION
+            fi
+          done
+          asdf reshim
+
+      - name: Install GO Dependencies
+        run: make go-install
+
+      - name: Run OPA Policy Validation
+        run: |
+          echo "Running OPA policy syntax validation..."
+          opa version
+          if opa eval --data policies/opa/global --format pretty "data.global" >/dev/null 2>&1; then
+            echo "✅ OPA policies are syntactically valid"
+          else
+            echo "❌ OPA policy validation failed"
+            exit 1
+          fi
+
+      - name: Get changed files
+        id: changed-files
+        run: |
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...origin/${{ github.head_ref }} | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "Changed files: $CHANGED_FILES"
+
+          if [ "$CHANGED_FILES" = "[]" ]; then
+            echo "❌ ERROR: No changed files detected in git diff"
+            echo "This indicates a problem with the git diff command or branch references"
+            exit 1
+          fi
+
+          jq --argjson files "$CHANGED_FILES" '.test_changed_files = $files' monorepo-config.json > monorepo-config.json.tmp
+          mv monorepo-config.json.tmp monorepo-config.json
+
+      - name: Detect proposed git repo changes
+        id: detect-module
+        run: |
+          set +e
+          OUTPUT=$(make detect-module-changes 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          echo "$OUTPUT"
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            IS_MODULE=$(echo "$OUTPUT" | grep "^IS_MODULE=" | cut -d'=' -f2)
+            MODULE_PATH=$(echo "$OUTPUT" | grep "^MODULE_PATH=" | cut -d'=' -f2)
+            MODULE_TYPE=$(echo "$OUTPUT" | grep "^MODULE_TYPE=" | cut -d'=' -f2)
+
+            IS_MODULE=${IS_MODULE:-false}
+            echo "is_module=$IS_MODULE" >> $GITHUB_OUTPUT
+
+            if [ "$IS_MODULE" = "true" ]; then
+              echo "module_path=$MODULE_PATH" >> $GITHUB_OUTPUT
+              echo "module_type=$MODULE_TYPE" >> $GITHUB_OUTPUT
+              echo ""
+              echo "✅ Detected Changes approved for further verification"
+              echo "   Module: $MODULE_PATH (Type: $MODULE_TYPE)"
+            else
+              echo ""
+              echo "✅ Detected Changes approved for further verification"
+              echo "   Type: Non-Terraform changes"
+            fi
+          else
+            echo ""
+            echo "❌ Change detection failed: $(echo "$OUTPUT" | tail -n 1)"
+            echo "   Please review the error above and fix the issues"
+          fi
+
+          exit $EXIT_CODE
+
+  # Offline gate for all non-Terraform-module code (Go + Rego).
+  non-tf-module-code:
+    name: Non-Terraform Module Code (Go + Rego)
+    needs: validate
+    if: needs.validate.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Simulate merge
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git fetch origin ${{ github.base_ref }}
+          git fetch origin ${{ github.head_ref }}
+          git checkout -b pr-validation origin/${{ github.base_ref }}
+          git merge --no-commit --no-ff origin/${{ github.head_ref }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl bc
+
+      - name: Install ASDF
+        run: |
+          git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.15.0
+          echo "$HOME/.asdf/bin" >> $GITHUB_PATH
+          echo "$HOME/.asdf/shims" >> $GITHUB_PATH
+          source $HOME/.asdf/asdf.sh
+
+      - name: Install ASDF plugins and tools (excluding Python)
+        run: |
+          cd $GITHUB_WORKSPACE
+          for tool in golang golangci-lint jq opa; do
+            if grep -q "^$tool " .tool-versions; then
+              echo "Installing $tool..."
+              asdf plugin add $tool || true
+              VERSION=$(grep "^$tool " .tool-versions | awk '{print $2}')
+              asdf install $tool $VERSION
+            fi
+          done
+          asdf reshim
+
+      - name: Configure environment
+        run: make go-install
+
+      - name: Run all non-Terraform module code tests
+        run: make test-all-non-tf-module-code
+
+  # Offline gate for a changed Terraform module: format, docs, policy and
+  # `terraform validate` only. No AWS credentials are required or used.
+  terraform-module-offline-checks:
+    name: Terraform Module Offline Checks
+    needs: validate
+    if: needs.validate.result == 'success' && needs.validate.outputs.is_module == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Simulate merge
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git fetch origin ${{ github.base_ref }}
+          git fetch origin ${{ github.head_ref }}
+          git checkout -b pr-validation origin/${{ github.base_ref }}
+          git merge --no-commit --no-ff origin/${{ github.head_ref }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl bc
+
+      - name: Install ASDF
+        run: |
+          git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.15.0
+          echo "$HOME/.asdf/bin" >> $GITHUB_PATH
+          echo "$HOME/.asdf/shims" >> $GITHUB_PATH
+          source $HOME/.asdf/asdf.sh
+
+      - name: Install ASDF plugins and tools (excluding Python)
+        run: |
+          cd $GITHUB_WORKSPACE
+          for tool in golang jq opa terraform terraform-docs tflint; do
+            if grep -q "^$tool " .tool-versions; then
+              echo "Installing $tool..."
+              asdf plugin add $tool || true
+              VERSION=$(grep "^$tool " .tool-versions | awk '{print $2}')
+              asdf install $tool $VERSION
+            fi
+          done
+          asdf reshim
+
+      - name: Configure environment
+        run: make go-install
+
+      - name: Run module validation
+        run: make module-validate MODULE_PATH=${{ needs.validate.outputs.module_path }} MODULE_TYPE=${{ needs.validate.outputs.module_type }}
+
+      - name: Run Terraform formatting check
+        run: make tf-format MODULE_PATH=${{ needs.validate.outputs.module_path }}
+
+      - name: Check Terraform documentation is up-to-date
+        run: make tf-docs-check MODULE_PATH=${{ needs.validate.outputs.module_path }}
+
+      - name: Run Terraform linting
+        run: make tf-lint MODULE_PATH=${{ needs.validate.outputs.module_path }}
+
+      # Offline validation only: `terraform validate` type-checks the config
+      # without contacting AWS. `terraform plan` is NOT run -- it would need
+      # credentials for the aws_caller_identity / aws_region data sources.
+      #
+      # Modules that compose sibling modules over `git::` + `?ref=<tag>` cannot
+      # be initialised until those sibling tags exist on the remote, so they are
+      # reported and skipped instead of failing the gate.
+      - name: Terraform init and validate (offline)
+        run: |
+          set -u
+          MODULE_PATH="${{ needs.validate.outputs.module_path }}"
+
+          validate_dir() {
+            dir="$1"
+            if grep -rqE 'source[[:space:]]*=[[:space:]]*"git::' "$dir"/*.tf 2>/dev/null; then
+              echo "⏭️  Skipping $dir: composes sibling modules over git:: sources whose release tags are not published yet"
+              return 0
+            fi
+            echo "🔍 Validating $dir"
+            terraform -chdir="$dir" init -backend=false
+            terraform -chdir="$dir" validate
+          }
+
+          validate_dir "$MODULE_PATH"
+
+          for example in "$MODULE_PATH"/examples/*/; do
+            [ -d "$example" ] || continue
+            validate_dir "${example%/}"
+          done
+
+  pr-validation-complete:
+    name: PR Validation Complete
+    runs-on: ubuntu-24.04
+    needs: [validate, non-tf-module-code, terraform-module-offline-checks]
+    if: always()
+    steps:
+      - name: Check gate results
+        run: |
+          echo "validate:                        ${{ needs.validate.result }}"
+          echo "non-tf-module-code:              ${{ needs.non-tf-module-code.result }}"
+          echo "terraform-module-offline-checks: ${{ needs.terraform-module-offline-checks.result }}"
+
+          if [ "${{ needs.validate.result }}" != "success" ]; then
+            echo "❌ validate failed"
+            exit 1
+          fi
+          if [ "${{ needs.non-tf-module-code.result }}" != "success" ]; then
+            echo "❌ non-tf-module-code failed"
+            exit 1
+          fi
+          if [ "${{ needs.terraform-module-offline-checks.result }}" != "success" ] && \
+             [ "${{ needs.terraform-module-offline-checks.result }}" != "skipped" ]; then
+            echo "❌ terraform-module-offline-checks failed"
+            exit 1
+          fi
+          echo "✅ PR validation complete"

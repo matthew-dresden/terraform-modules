@@ -1,0 +1,404 @@
+name: Release
+
+# DISABLED: requires secrets this repository does not have.
+#
+# The release job authenticates with the GH_APP_ID / GH_APP_PRIVATE_KEY
+# GitHub App secrets to push tags and open PRs, and reports to
+# SLACK_WEBHOOK_URL. Neither is configured, so the trigger and the job below
+# are commented out rather than left to fail. Uncomment once GH_APP_ID,
+# GH_APP_PRIVATE_KEY and SLACK_WEBHOOK_URL are provisioned.
+
+#
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       release_type:
+#         description: 'Type of release (terraform-module or non-terraform)'
+#         required: true
+#         type: string
+#       module_path:
+#         description: 'Path to the Terraform module (only for terraform-module releases)'
+#         required: false
+#         type: string
+#       contributor_type:
+#         description: 'Type of contributor (Internal or External)'
+#         required: true
+#         type: string
+#       contributor_username:
+#         description: 'Username of the contributor'
+#         required: true
+#         type: string
+#       bump_type:
+#         description: 'Version bump type (major, minor, patch, or auto)'
+#         required: false
+#         default: 'auto'
+#         type: choice
+#         options:
+#           - auto
+#           - major
+#           - minor
+#           - patch
+#       dry_run:
+#         description: 'Dry run - show what would happen without creating tags/releases'
+#         required: false
+#         default: false
+#         type: boolean
+#
+# jobs:
+#   release:
+#     name: Release
+#     runs-on: ubuntu-24.04
+#     permissions:
+#       contents: write
+#       id-token: write
+#       pull-requests: write
+#
+#     steps:
+#     - name: Checkout code
+#       uses: actions/checkout@v4
+#       with:
+#         fetch-depth: 0
+#
+#     - name: Read Python version
+#       id: python-version
+#       run: |
+#         PYTHON_VERSION=$(grep '^python ' .tool-versions | awk '{print $2}')
+#         echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
+#
+#     - name: Setup Python
+#       uses: actions/setup-python@v5
+#       with:
+#         python-version: ${{ steps.python-version.outputs.version }}
+#
+#     - name: Generate GitHub App token
+#       id: generate_token
+#       uses: tibdex/github-app-token@3beb63f4bd073e61482598c45c71c1019b59b73a
+#       with:
+#         app_id: ${{ secrets.GH_APP_ID }}
+#         private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+#
+#     - name: Install python-semantic-release
+#       run: pip install -r .github/workflows/requirements-release.txt
+#
+#     - name: Determine release type & run
+#       id: run-release
+#       env:
+#         GH_TOKEN: ${{ steps.generate_token.outputs.token }}
+#         GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
+#         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+#       run: |
+#         set -eo pipefail
+#
+#         TYPE="${{ github.event.inputs.release_type }}"
+#         CONTRIB="${{ github.event.inputs.contributor_type }}"
+#         USER="${{ github.event.inputs.contributor_username }}"
+#
+#         if [[ "$TYPE" != "terraform-module" && "$TYPE" != "non-terraform" ]]; then
+#           echo "❌ Invalid release_type: $TYPE"
+#           exit 1
+#         fi
+#
+#         notify_slack() {
+#           local TAG="$1"
+#           curl -s -X POST -H 'Content-type: application/json' \
+#             --data "{\"text\":\":rocket: Published *$TAG* ($TYPE) by $USER ($CONTRIB)\"}" \
+#             $SLACK_WEBHOOK_URL
+#         }
+#
+#         git config user.name "github-actions[bot]"
+#         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+#
+#         if [[ "$TYPE" == "terraform-module" ]]; then
+#           MODULE="${{ github.event.inputs.module_path }}"
+#           PREFIX="${MODULE}/v"
+#           echo "🔧 TF release for: $MODULE"
+#
+#           if [[ ! -d "$MODULE" ]]; then
+#             echo "❌ Module path not found: $MODULE" >&2
+#             exit 1
+#           fi
+#
+#           git fetch origin
+#
+#           LATEST_TAG=$(git tag --list "${PREFIX}[0-9]*" --sort=-v:refname | head -1)
+#           if [[ -n "$LATEST_TAG" && ! "$LATEST_TAG" =~ ^${PREFIX}[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+#             echo "❌ Invalid tag format: $LATEST_TAG" >&2
+#             exit 1
+#           fi
+#
+#           if [[ -z "$LATEST_TAG" ]]; then
+#             CURRENT="0.0.0"
+#             # For first release, get all commits for the module
+#             COMMITS=$(git log --oneline -- "$MODULE" || echo "")
+#           else
+#             CURRENT="${LATEST_TAG#${PREFIX}}"
+#             # Get commits since last tag for this module, excluding commits already released in OTHER module tags
+#             OTHER_TAGS=$(git tag | grep -v "^${PREFIX}" | xargs -r git rev-parse 2>/dev/null || echo "")
+#             if [[ -n "$OTHER_TAGS" ]]; then
+#               COMMITS=$(git log --oneline "${LATEST_TAG}..HEAD" --not $OTHER_TAGS -- "$MODULE" 2>/dev/null || echo "")
+#             else
+#               COMMITS=$(git log --oneline "${LATEST_TAG}..HEAD" -- "$MODULE" || echo "")
+#             fi
+#           fi
+#
+#           echo "🔍 Latest tag: $LATEST_TAG"
+#           echo "🔍 Commits since last tag (unreleased only):"
+#           echo "$COMMITS"
+#
+#           # Debug: print each commit line
+#           echo "--- DEBUG: Commits lines ---"
+#           echo "$COMMITS" | while read -r line; do echo "> $line"; done
+#           echo "--- END DEBUG ---"
+#
+#           # --- Updated bump logic to match semantic-release config ---
+#           BUMP_TYPE="${{ github.event.inputs.bump_type }}"
+#
+#           if [[ "$BUMP_TYPE" == "major" ]]; then
+#             IS_MAJOR=1
+#             IS_MINOR=0
+#             IS_PATCH=0
+#           elif [[ "$BUMP_TYPE" == "minor" ]]; then
+#             IS_MAJOR=0
+#             IS_MINOR=1
+#             IS_PATCH=0
+#           elif [[ "$BUMP_TYPE" == "patch" ]]; then
+#             IS_MAJOR=0
+#             IS_MINOR=0
+#             IS_PATCH=1
+#           else
+#             # --- Auto-detect bump level from commit messages ---
+#             IS_MAJOR=0
+#             IS_MINOR=0
+#             IS_PATCH=0
+#
+#             echo "--- DEBUG: Scanning commit messages for bump type ---"
+#             echo "$COMMITS"
+#
+#             # Trigger major bump if any commit has a breaking type suffix (!)
+#             if echo "$COMMITS" | grep -Eq '\b(feat|fix|perf|build|ci|chore|docs|style|refactor|test|release|module|meta|revert)!:'; then
+#               echo "DEBUG: Found 'type!:' breaking change — will trigger major bump"
+#               IS_MAJOR=1
+#             elif echo "$COMMITS" | grep -q 'BREAKING CHANGE'; then
+#               echo "DEBUG: Found 'BREAKING CHANGE' footer — will trigger major bump"
+#               IS_MAJOR=1
+#             fi
+#
+#             if [[ $IS_MAJOR -ne 1 ]]; then
+#               # Minor bump if any of the minor types appear
+#               if echo "$COMMITS" | grep -Eq '\b(feat|perf|build|revert|release|module|meta|ci):'; then
+#                 echo "DEBUG: Found minor commit (feat/perf/build/etc)"
+#                 IS_MINOR=1
+#               fi
+#
+#               # Patch bump if any of the patch-level types appear
+#               if echo "$COMMITS" | grep -Eq '\b(fix|chore|docs|style|refactor|test):'; then
+#                 echo "DEBUG: Found patch commit (fix/chore/docs/etc)"
+#                 IS_PATCH=1
+#               fi
+#
+#               # If no matching bump-worthy commits found, no bump
+#               if [[ $IS_MINOR -eq 0 && $IS_PATCH -eq 0 ]]; then
+#                 echo "DEBUG: No minor or patch commits matched — no bump"
+#               fi
+#             fi
+#           fi
+#
+#           if [[ $IS_MAJOR -eq 1 ]]; then
+#             MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+#             NEXT="$((MAJOR + 1)).0.0"
+#           elif [[ $IS_MINOR -eq 1 ]]; then
+#             MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+#             MINOR=$(echo "$CURRENT" | cut -d. -f2)
+#             NEXT="$MAJOR.$((MINOR + 1)).0"
+#           elif [[ $IS_PATCH -eq 1 ]]; then
+#             MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+#             MINOR=$(echo "$CURRENT" | cut -d. -f2)
+#             PATCH=$(echo "$CURRENT" | cut -d. -f3)
+#             NEXT="$MAJOR.$MINOR.$((PATCH + 1))"
+#           else
+#             echo "DEBUG: No relevant commit found (no bump needed)"
+#             echo "ℹ️ No bump needed."
+#             exit 0
+#           fi
+#
+#           echo "DEBUG: NEXT version will be $NEXT"
+#
+#           NEW_TAG="${PREFIX}${NEXT}"
+#
+#           if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+#             echo "🔍 DRY RUN: Would create tag $NEW_TAG"
+#             echo "🔍 DRY RUN: Current version: $CURRENT"
+#             echo "🔍 DRY RUN: Next version: $NEXT"
+#             echo "🔍 DRY RUN: Commits that would be included:"
+#             echo "$COMMITS"
+#             exit 0
+#           fi
+#
+#           echo "$NEXT" > "${MODULE}/VERSION"
+#           echo "## $NEW_TAG ($(date +'%Y-%m-%d'))" > "${MODULE}/CHANGELOG.md"
+#           echo "$COMMITS" | sed 's/^/* /' >> "${MODULE}/CHANGELOG.md"
+#
+#           BRANCH_NAME="release-$NEW_TAG"
+#           git checkout -b "$BRANCH_NAME"
+#           git add "${MODULE}/VERSION" "${MODULE}/CHANGELOG.md"
+#           git commit -m "chore(release): $NEW_TAG"
+#           git push origin "$BRANCH_NAME"
+#
+#           echo "🔀 Creating release PR..."
+#           PR_BODY="Automated terraform module release PR for $NEW_TAG"
+#           PR_URL=$(gh pr create --title "Release $NEW_TAG" --body "$PR_BODY" --base main --head "$BRANCH_NAME")
+#           echo "Created PR: $PR_URL"
+#
+#           echo "🔀 Auto-merging release PR..."
+#           gh pr merge "$PR_URL" --admin --squash
+#
+#           echo "🏷️ Creating release tag..."
+#           git fetch --all
+#           git checkout main
+#           git pull origin main
+#           git tag -a "$NEW_TAG" -m "Release $NEW_TAG"
+#           git push origin "$NEW_TAG"
+#
+#           echo "🧹 Cleaning up release branch..."
+#           git push origin --delete "$BRANCH_NAME" || true
+#
+#           notify_slack "$NEW_TAG"
+#           echo "✅ Terraform release complete"
+#
+#         else
+#           echo "🚀 Non-terraform release"
+#           git fetch --tags --force
+#           git fetch origin
+#
+#           LATEST_TAG=$(git tag --list "monorepo-config/v[0-9]*" --sort=-v:refname | head -n 1)
+#
+#           if [[ -z "$LATEST_TAG" ]]; then
+#             CURRENT="0.0.0"
+#             # For first release, get all commits excluding terraform module paths
+#             COMMITS=$(git log --oneline -- . ':(exclude)providers/' ':(exclude)generics/' ':(exclude)skeletons/' || echo "")
+#           else
+#             CURRENT="${LATEST_TAG#monorepo-config/v}"
+#             # Get commits since last tag, excluding commits already released in OTHER module tags
+#             OTHER_TAGS=$(git tag | grep -v "^monorepo-config/" | xargs -r git rev-parse 2>/dev/null || echo "")
+#             if [[ -n "$OTHER_TAGS" ]]; then
+#               COMMITS=$(git log --oneline "${LATEST_TAG}..HEAD" --not $OTHER_TAGS -- . ':(exclude)providers/' ':(exclude)generics/' ':(exclude)skeletons/' 2>/dev/null || echo "")
+#             else
+#               COMMITS=$(git log --oneline "${LATEST_TAG}..HEAD" -- . ':(exclude)providers/' ':(exclude)generics/' ':(exclude)skeletons/' || echo "")
+#             fi
+#           fi
+#
+#           echo "🔍 Latest tag: $LATEST_TAG"
+#           echo "🔍 Commits since last tag (unreleased only):"
+#           echo "$COMMITS"
+#
+#           echo "--- DEBUG: Commits lines ---"
+#           echo "$COMMITS" | while read -r line; do echo "> $line"; done
+#           echo "--- END DEBUG ---"
+#
+#           # Manual version bump calculation (same logic as terraform modules)
+#           BUMP_TYPE="${{ github.event.inputs.bump_type }}"
+#
+#           if [[ "$BUMP_TYPE" == "major" ]]; then
+#             IS_MAJOR=1
+#             IS_MINOR=0
+#             IS_PATCH=0
+#           elif [[ "$BUMP_TYPE" == "minor" ]]; then
+#             IS_MAJOR=0
+#             IS_MINOR=1
+#             IS_PATCH=0
+#           elif [[ "$BUMP_TYPE" == "patch" ]]; then
+#             IS_MAJOR=0
+#             IS_MINOR=0
+#             IS_PATCH=1
+#           else
+#             IS_MAJOR=0
+#             IS_MINOR=0
+#             IS_PATCH=0
+#
+#             if echo "$COMMITS" | grep -Eq '\b(feat|fix|perf|build|ci|chore|docs|style|refactor|test|release|module|meta|revert)!:'; then
+#               IS_MAJOR=1
+#             elif echo "$COMMITS" | grep -q 'BREAKING CHANGE'; then
+#               IS_MAJOR=1
+#             fi
+#
+#             if [[ $IS_MAJOR -ne 1 ]]; then
+#               if echo "$COMMITS" | grep -Eq '\b(feat|perf|build|revert|release|module|meta|ci):'; then
+#                 IS_MINOR=1
+#               fi
+#               if echo "$COMMITS" | grep -Eq '\b(fix|chore|docs|style|refactor|test):'; then
+#                 IS_PATCH=1
+#               fi
+#             fi
+#           fi
+#
+#           if [[ $IS_MAJOR -eq 1 ]]; then
+#             MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+#             NEXT="$((MAJOR + 1)).0.0"
+#           elif [[ $IS_MINOR -eq 1 ]]; then
+#             MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+#             MINOR=$(echo "$CURRENT" | cut -d. -f2)
+#             NEXT="$MAJOR.$((MINOR + 1)).0"
+#           elif [[ $IS_PATCH -eq 1 ]]; then
+#             MAJOR=$(echo "$CURRENT" | cut -d. -f1)
+#             MINOR=$(echo "$CURRENT" | cut -d. -f2)
+#             PATCH=$(echo "$CURRENT" | cut -d. -f3)
+#             NEXT="$MAJOR.$MINOR.$((PATCH + 1))"
+#           else
+#             echo "ℹ️ No bump needed."
+#             exit 0
+#           fi
+#
+#           NEW_VERSION="monorepo-config/v$NEXT"
+#           echo "Computed new version: $NEW_VERSION (from $CURRENT)"
+#
+#           if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+#             echo "🔍 DRY RUN: Would create tag $NEW_VERSION"
+#             echo "🔍 DRY RUN: Current version: $CURRENT"
+#             echo "🔍 DRY RUN: Next version: $NEXT"
+#             echo "🔍 DRY RUN: Commits that would be included:"
+#             echo "$COMMITS"
+#             exit 0
+#           fi
+#
+#           # Update VERSION file
+#           echo "$NEXT" > VERSION
+#
+#           # Generate changelog
+#           echo "📝 Generating changelog..."
+#           echo "## $NEW_VERSION ($(date +'%Y-%m-%d'))" > CHANGELOG.md
+#           echo "$COMMITS" | sed 's/^/* /' >> CHANGELOG.md
+#
+#           # Create release branch and commit changes
+#           BRANCH_NAME="release-$NEW_VERSION"
+#           git checkout -b "$BRANCH_NAME"
+#           git add CHANGELOG.md VERSION
+#           git commit -m "chore(release): $NEW_VERSION"
+#           git push origin "$BRANCH_NAME"
+#
+#           # Create PR and merge it
+#           echo "🔀 Creating release PR..."
+#           PR_BODY="Automated release PR for version $NEW_VERSION"
+#           PR_URL=$(gh pr create --title "Release $NEW_VERSION" --body "$PR_BODY" --base main --head "$BRANCH_NAME")
+#           echo "Created PR: $PR_URL"
+#
+#           echo "🔀 Auto-merging release PR..."
+#           gh pr merge "$PR_URL" --admin --squash
+#
+#           # Tag the release
+#           echo "🏷️ Creating release tag..."
+#           git fetch --all
+#           git checkout main
+#           git pull origin main
+#           git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
+#           git push origin "$NEW_VERSION"
+#
+#           # Clean up release branch
+#           echo "🧹 Cleaning up release branch..."
+#           git push origin --delete "$BRANCH_NAME" || true
+#
+#           notify_slack "$NEW_VERSION"
+#           echo "✅ Non-terraform release complete: $NEW_VERSION"
+#         fi
+#
+#     - name: Show exit status
+#       run: echo "Release job completed with exit code $?"

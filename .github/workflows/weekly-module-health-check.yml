@@ -1,0 +1,77 @@
+name: Weekly Module Health Check
+
+# DISABLED: requires AWS credentials; see tracking issue.
+# This workflow runs `make test-all-terraform-modules`, which provisions live
+# AWS infrastructure. Restore the trigger block below once CI has credentials.
+#
+# on:
+#   schedule:
+#     # Run every Sunday at 1:00 AM UTC
+#     - cron: '0 1 * * 0'
+#   workflow_dispatch: # Allow manual triggering
+
+jobs:
+  test-all-modules:
+    name: Test All Terraform Modules
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read Python version
+        id: python-version
+        run: |
+          PYTHON_VERSION=$(grep '^python ' .tool-versions | awk '{print $2}')
+          echo "version=$PYTHON_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ steps.python-version.outputs.version }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl bc
+
+      - name: Install ASDF
+        run: |
+          git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.15.0
+          echo "$HOME/.asdf/bin" >> $GITHUB_PATH
+          echo "$HOME/.asdf/shims" >> $GITHUB_PATH
+          source $HOME/.asdf/asdf.sh
+
+      - name: Install ASDF plugins and tools (excluding Python)
+        run: |
+          cd $GITHUB_WORKSPACE
+          # Install all tools needed for Terraform validation
+          for tool in golang jq opa terraform terraform-docs tflint tfsec; do
+            if grep -q "^$tool " .tool-versions; then
+              echo "Installing $tool..."
+              asdf plugin add $tool || true
+              VERSION=$(grep "^$tool " .tool-versions | awk '{print $2}')
+              asdf install $tool $VERSION
+            fi
+          done
+          asdf reshim
+          
+      - name: Configure environment
+        run: make configure
+
+      - name: Run comprehensive module tests
+        id: test-modules
+        run: make test-all-terraform-modules
+
+      - name: Notify Slack on success
+        if: success()
+        run: |
+          curl -s -X POST -H 'Content-type: application/json' \
+            --data '{"text":":white_check_mark: Weekly module health check passed - all Terraform modules are healthy\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"}' \
+            ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on failure
+        if: failure()
+        run: |
+          curl -s -X POST -H 'Content-type: application/json' \
+            --data '{"text":":x: Weekly module health check failed - some Terraform modules have issues\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"}' \
+            ${{ secrets.SLACK_WEBHOOK_URL }}

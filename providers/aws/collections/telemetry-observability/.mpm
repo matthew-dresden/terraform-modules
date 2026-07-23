@@ -1,0 +1,18 @@
+# mpm manifest for this Terraform module.
+#
+# Sources are auto-discovered from MPM_SOURCE_<name>_URL keys; every source is
+# resolved and pinned through the sibling .mpm.lock file. mpm discovers this
+# file natively by walking up from the working directory, so nothing here is
+# sourced by make.
+#
+# Regenerate a source block with:
+#   mpm add terraform-module-build \
+#     --catalog-source https://github.com/matthew-dresden/mpm.git@1.0.0
+#
+# Then materialise .packages/ with `make mpm-configure` (runs `mpm install`).
+
+MPM_SOURCE_build_URL=https://github.com/matthew-dresden/mpm.git
+MPM_SOURCE_build_REF=refs/tags/1.0.0
+MPM_SOURCE_build_PATH=repo-specs/terraform/terraform-modules-monorepo/modules/meta.xml
+MPM_SOURCE_build_NAME=terraform-module-build
+MPM_SOURCE_build_GITBASE=https://github.com/matthew-dresden/

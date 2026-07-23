@@ -1,0 +1,5 @@
+# No Python runtime dependencies.
+#
+# Per-module package resolution is handled by the self-contained mpm CLI,
+# which is installed out-of-band and is not a pip dependency of this repo:
+#   pipx install git+https://github.com/matthew-dresden/mpm@v1.0.0

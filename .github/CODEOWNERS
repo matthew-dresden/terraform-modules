@@ -1,0 +1,54 @@
+# This file defines ownership for files in this repository
+# See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything in the repo
+* @matthew-dresden
+
+# Terraform module files
+*.tf @matthew-dresden
+*.tfvars @matthew-dresden
+
+# Documentation
+*.md @matthew-dresden
+/docs/ @matthew-dresden
+
+# Policies
+/policies/ @matthew-dresden
+
+# Scripts
+/scripts/ @matthew-dresden
+
+# Module types
+/generics/ @matthew-dresden
+/providers/ @matthew-dresden
+/skeletons/ @matthew-dresden
+
+# Tests
+**/tests/ @matthew-dresden
+
+# Configuration files
+*.json @matthew-dresden
+*.yaml @matthew-dresden
+*.yml @matthew-dresden
+Makefile @matthew-dresden
+.github/ @matthew-dresden
+
+# Telemetry platform modules
+providers/aws/primitives/lambda/                      @matthew-dresden
+providers/aws/primitives/sqs-queue/                   @matthew-dresden
+providers/aws/primitives/dynamodb-table/              @matthew-dresden
+providers/aws/primitives/api-gateway-rest-api/        @matthew-dresden
+providers/aws/primitives/waf-webacl/                  @matthew-dresden
+providers/aws/primitives/appconfig-application/       @matthew-dresden
+providers/aws/primitives/secrets-manager-secret/      @matthew-dresden
+providers/aws/primitives/opensearch-domain/           @matthew-dresden
+providers/aws/primitives/eventbridge-bus/             @matthew-dresden
+providers/aws/primitives/route53-record/              @matthew-dresden
+providers/aws/primitives/managed-grafana-workspace/   @matthew-dresden
+providers/aws/collections/telemetry-api/              @matthew-dresden
+providers/aws/collections/telemetry-storage/          @matthew-dresden
+providers/aws/collections/telemetry-observability/    @matthew-dresden
+
+# Python tooling artifacts -- specific patterns so pr-validation CODEOWNERS scan accepts the PR
+.gitignore  @matthew-dresden
+uv.lock     @matthew-dresden
