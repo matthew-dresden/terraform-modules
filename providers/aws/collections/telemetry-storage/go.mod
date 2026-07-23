@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/eventbridge v1.45.25
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.37.1
 	github.com/gruntwork-io/terratest v0.49.0
-	github.com/matthew-dresden/terraform-terratest-framework v1.0.0
+	github.com/matthew-dresden/terraform-terratest-framework v0.1.0
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.10.0
 )

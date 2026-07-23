@@ -299,7 +299,7 @@ go test -v -run TestZipDeploymentFeatures/FailingSubtest ./tests/lambda-zip-depl
 
 ## Framework Details
 
-- Uses `testctx.RunSingleExample()` from terraform-terratest-framework v1.3.0
+- Uses `testctx.RunSingleExample()` from terraform-terratest-framework v0.1.0
 - All subtests share the same `ctx` (TestContext) instance
 - Failed subtests don't block other subtests from running
 - Framework handles all Terraform lifecycle (init, apply, plan, destroy)

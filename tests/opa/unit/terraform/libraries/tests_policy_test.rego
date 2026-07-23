@@ -140,7 +140,7 @@ test_missing_test_config_violation if {
 		"modules/test-module/tests/README.md": "# Tests",
 		"modules/test-module/tests/complete/module_test.go": "package test\n\nimport \"github.com/matthew-dresden/terraform-terratest-framework/pkg/testctx\"\n\nfunc TestModule(t *testing.T) {}",
 		"modules/test-module/tests/complete/README.md": "# Complete Test",
-		"modules/test-module/go.mod": "module test\n\nrequire github.com/matthew-dresden/terraform-terratest-framework v1.0.0",
+		"modules/test-module/go.mod": "module test\n\nrequire github.com/matthew-dresden/terraform-terratest-framework v0.1.0",
 	}
 	test_input := helpers.mock_terraform_module_input(module_path, files)
 
@@ -181,7 +181,7 @@ test_missing_idempotency_setting_violation if {
 		"modules/test-module/tests/README.md": "# Tests",
 		"modules/test-module/tests/complete/module_test.go": "package test\n\nimport \"github.com/matthew-dresden/terraform-terratest-framework/pkg/testctx\"\n\nfunc TestModule(t *testing.T) {}",
 		"modules/test-module/tests/complete/README.md": "# Complete Test",
-		"modules/test-module/go.mod": "module test\n\nrequire github.com/matthew-dresden/terraform-terratest-framework v1.0.0",
+		"modules/test-module/go.mod": "module test\n\nrequire github.com/matthew-dresden/terraform-terratest-framework v0.1.0",
 		"modules/test-module/test.config": "# Test configuration",
 	}
 	test_input := helpers.mock_terraform_module_input(module_path, files)
@@ -217,7 +217,7 @@ test_compliant_test_structure_no_violation if {
 		"modules/test-module/tests/common/module_test.go": "package test\n\nimport \"github.com/matthew-dresden/terraform-terratest-framework/pkg/testctx\"\n\nfunc TestModule(t *testing.T) {}",
 		"modules/test-module/tests/common/README.md": "# Common Test",
 		# Module files
-		"modules/test-module/go.mod": "module test\n\nrequire github.com/matthew-dresden/terraform-terratest-framework v1.0.0",
+		"modules/test-module/go.mod": "module test\n\nrequire github.com/matthew-dresden/terraform-terratest-framework v0.1.0",
 		"modules/test-module/test.config": "TERRATEST_IDEMPOTENCY=true",
 	}
 	test_input := helpers.mock_terraform_module_input(module_path, files)
@@ -246,7 +246,7 @@ test_invalid_idempotency_value_violation if {
 		"modules/test-module/tests/README.md": "# Tests",
 		"modules/test-module/tests/complete/module_test.go": "package test\n\nimport \"github.com/matthew-dresden/terraform-terratest-framework/pkg/testctx\"\n\nfunc TestModule(t *testing.T) {}",
 		"modules/test-module/tests/complete/README.md": "# Complete Test",
-		"modules/test-module/go.mod": "module test\n\nrequire github.com/matthew-dresden/terraform-terratest-framework v1.0.0",
+		"modules/test-module/go.mod": "module test\n\nrequire github.com/matthew-dresden/terraform-terratest-framework v0.1.0",
 		"modules/test-module/test.config": "TERRATEST_IDEMPOTENCY=invalid",
 	}
 	test_input := helpers.mock_terraform_module_input(module_path, files)
@@ -262,7 +262,7 @@ test_idempotency_false_value_no_violation if {
 		"modules/test-module/tests/README.md": "# Tests",
 		"modules/test-module/tests/complete/module_test.go": "package test\n\nimport \"github.com/matthew-dresden/terraform-terratest-framework/pkg/testctx\"\n\nfunc TestModule(t *testing.T) {}",
 		"modules/test-module/tests/complete/README.md": "# Complete Test",
-		"modules/test-module/go.mod": "module test\n\nrequire github.com/matthew-dresden/terraform-terratest-framework v1.0.0",
+		"modules/test-module/go.mod": "module test\n\nrequire github.com/matthew-dresden/terraform-terratest-framework v0.1.0",
 		"modules/test-module/test.config": "TERRATEST_IDEMPOTENCY=false",
 	}
 	test_input := helpers.mock_terraform_module_input(module_path, files)

@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.69.0
 	github.com/aws/aws-sdk-go-v2/service/wafv2 v1.71.5
 	github.com/gruntwork-io/terratest v0.49.0
-	github.com/matthew-dresden/terraform-terratest-framework v1.0.0
+	github.com/matthew-dresden/terraform-terratest-framework v0.1.0
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.10.0
 )

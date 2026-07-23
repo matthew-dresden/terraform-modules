@@ -15,7 +15,7 @@
 
 | Name | Source | Version |
 |------|--------|---------|
-| <a name="module_aws_data"></a> [aws\_data](#module\_aws\_data) | git::https://github.com/matthew-dresden/terraform-modules.git//providers/aws/data/aws-constants | providers/aws/data/aws-constants/v1.1.0 |
+| <a name="module_aws_data"></a> [aws\_data](#module\_aws\_data) | git::https://github.com/matthew-dresden/terraform-modules.git//providers/aws/data/aws-constants | providers/aws/data/aws-constants/v0.1.0 |
 
 ## Resources
 
