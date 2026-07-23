@@ -10,6 +10,13 @@ name: Weekly Module Health Check
 #     - cron: '0 1 * * 0'
 #   workflow_dispatch: # Allow manual triggering
 
+# The original trigger above is commented out, but a workflow file must still
+# declare `on:` to be valid -- otherwise GitHub cannot parse it and reports a
+# failing run against every commit. Manual dispatch keeps the file valid while
+# preventing any scheduled execution.
+on:
+  workflow_dispatch:
+
 jobs:
   test-all-modules:
     name: Test All Terraform Modules

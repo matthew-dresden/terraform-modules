@@ -402,3 +402,21 @@ name: Release
 #
 #     - name: Show exit status
 #       run: echo "Release job completed with exit code $?"
+
+# The trigger and jobs above are commented out, but a workflow file must still
+# declare `on:` and `jobs:` to be valid -- otherwise GitHub cannot parse it and
+# reports a failing run against every commit. This manual-only placeholder keeps
+# the file valid and inert while preserving the original definition above.
+on:
+  workflow_dispatch:
+
+jobs:
+  disabled:
+    name: Disabled pending secrets
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report disabled status
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::notice::This workflow is disabled pending credentials; see the comment block at the top of the file."
