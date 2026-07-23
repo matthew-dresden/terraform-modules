@@ -253,9 +253,10 @@ jobs:
       # without contacting AWS. `terraform plan` is NOT run -- it would need
       # credentials for the aws_caller_identity / aws_region data sources.
       #
-      # Modules that compose sibling modules over `git::` + `?ref=<tag>` cannot
-      # be initialised until those sibling tags exist on the remote, so they are
-      # reported and skipped instead of failing the gate.
+      # Modules that compose sibling modules over `git::` + `?ref=<tag>` resolve
+      # against this repository's published per-module tags, so they are
+      # validated like any other module. `terraform init` fetches those sources
+      # over HTTPS; no credentials are involved.
       - name: Terraform init and validate (offline)
         run: |
           set -u
@@ -263,10 +264,6 @@ jobs:
 
           validate_dir() {
             dir="$1"
-            if grep -rqE 'source[[:space:]]*=[[:space:]]*"git::' "$dir"/*.tf 2>/dev/null; then
-              echo "⏭️  Skipping $dir: composes sibling modules over git:: sources whose release tags are not published yet"
-              return 0
-            fi
             echo "🔍 Validating $dir"
             terraform -chdir="$dir" init -backend=false
             terraform -chdir="$dir" validate
