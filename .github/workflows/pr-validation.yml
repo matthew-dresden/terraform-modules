@@ -29,6 +29,7 @@ jobs:
       is_module: ${{ steps.detect-module.outputs.is_module }}
       module_path: ${{ steps.detect-module.outputs.module_path }}
       module_type: ${{ steps.detect-module.outputs.module_type }}
+      validate_all: ${{ steps.detect-module.outputs.validate_all }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -101,6 +102,19 @@ jobs:
       - name: Detect proposed git repo changes
         id: detect-module
         run: |
+          # The one-module-per-PR rule exists so each module can be released on
+          # its own semver tag. It cannot apply to the initial import, which
+          # necessarily adds every module at once. Detect that case -- the base
+          # branch contains no modules yet -- and validate all modules instead.
+          if ! git ls-tree -d --name-only "origin/${{ github.base_ref }}" -- providers generics skeletons 2>/dev/null | grep -q .; then
+            echo "ℹ️  Base branch contains no modules yet: treating this as the initial import"
+            echo "   Every module will be validated instead of enforcing one-module-per-PR."
+            echo "is_module=false" >> $GITHUB_OUTPUT
+            echo "validate_all=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "validate_all=false" >> $GITHUB_OUTPUT
+
           set +e
           OUTPUT=$(make detect-module-changes 2>&1)
           EXIT_CODE=$?
@@ -192,7 +206,7 @@ jobs:
   terraform-module-offline-checks:
     name: Terraform Module Offline Checks
     needs: validate
-    if: needs.validate.result == 'success' && needs.validate.outputs.is_module == 'true'
+    if: needs.validate.result == 'success' && (needs.validate.outputs.is_module == 'true' || needs.validate.outputs.validate_all == 'true')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
@@ -237,17 +251,26 @@ jobs:
       - name: Configure environment
         run: make go-install
 
-      - name: Run module validation
-        run: make module-validate MODULE_PATH=${{ needs.validate.outputs.module_path }} MODULE_TYPE=${{ needs.validate.outputs.module_type }}
-
-      - name: Run Terraform formatting check
-        run: make tf-format MODULE_PATH=${{ needs.validate.outputs.module_path }}
-
-      - name: Check Terraform documentation is up-to-date
-        run: make tf-docs-check MODULE_PATH=${{ needs.validate.outputs.module_path }}
-
-      - name: Run Terraform linting
-        run: make tf-lint MODULE_PATH=${{ needs.validate.outputs.module_path }}
+      # Builds the list of modules to check: the single changed module in the
+      # normal case, or every module in the repository for the initial import.
+      - name: Resolve module list
+        id: modules
+        run: |
+          set -eu
+          if [ "${{ needs.validate.outputs.validate_all }}" = "true" ]; then
+            : > /tmp/modules.txt
+            for root in $(jq -r '.module_roots[]' monorepo-config.json); do
+              for dir in "$root"*/; do
+                [ -d "$dir" ] || continue
+                ls "$dir"*.tf >/dev/null 2>&1 || continue
+                printf '%s\n' "${dir%/}" >> /tmp/modules.txt
+              done
+            done
+            echo "Validating all $(wc -l < /tmp/modules.txt) modules (initial import)."
+          else
+            printf '%s\n' "${{ needs.validate.outputs.module_path }}" > /tmp/modules.txt
+          fi
+          cat /tmp/modules.txt
 
       # Offline validation only: `terraform validate` type-checks the config
       # without contacting AWS. `terraform plan` is NOT run -- it would need
@@ -257,24 +280,51 @@ jobs:
       # against this repository's published per-module tags, so they are
       # validated like any other module. `terraform init` fetches those sources
       # over HTTPS; no credentials are involved.
-      - name: Terraform init and validate (offline)
+      - name: Validate modules (offline)
         run: |
-          set -u
-          MODULE_PATH="${{ needs.validate.outputs.module_path }}"
+          set -eu
+          SINGLE_TYPE="${{ needs.validate.outputs.module_type }}"
 
           validate_dir() {
             dir="$1"
-            echo "🔍 Validating $dir"
+            echo "🔍 terraform validate $dir"
             terraform -chdir="$dir" init -backend=false
             terraform -chdir="$dir" validate
           }
 
-          validate_dir "$MODULE_PATH"
+          while read -r module; do
+            [ -n "$module" ] || continue
+            echo "::group::$module"
 
-          for example in "$MODULE_PATH"/examples/*/; do
-            [ -d "$example" ] || continue
-            validate_dir "${example%/}"
-          done
+            # Module type drives the OPA policy bundle. In single-module mode it
+            # comes from the detector; for the initial import derive it from the
+            # module root, and skip the policy check where it does not resolve.
+            case "$module" in
+              */primitives/*) mtype=primitive ;;
+              */collections/*) mtype=collection ;;
+              */references/*) mtype=reference ;;
+              */data/*)       mtype=data ;;
+              *)              mtype="${SINGLE_TYPE:-}" ;;
+            esac
+
+            if [ -n "$mtype" ]; then
+              make module-validate MODULE_PATH="$module" MODULE_TYPE="$mtype"
+            else
+              echo "ℹ️  No module type for $module; skipping OPA module-validate."
+            fi
+
+            make tf-format MODULE_PATH="$module"
+            make tf-docs-check MODULE_PATH="$module"
+            make tf-lint MODULE_PATH="$module"
+
+            validate_dir "$module"
+            for example in "$module"/examples/*/; do
+              [ -d "$example" ] || continue
+              validate_dir "${example%/}"
+            done
+
+            echo "::endgroup::"
+          done < /tmp/modules.txt
 
   pr-validation-complete:
     name: PR Validation Complete
